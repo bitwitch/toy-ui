@@ -29,6 +29,7 @@ struct Window {
 	Element element;
 	uint32_t *bits; // The bitmap image of the window's content.
 	int width, height; // The size of the area of the window we can draw onto.
+	Rect update_region; // area that needs to be repainted at the next 'update point'
 
 #ifdef PLATFORM_WIN32
 	HWND hwnd;
@@ -94,18 +95,74 @@ void test_helpers(void) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// Test element messages
+// Core UI Code
 //////////////////////////////////////////////////////////////////////////////
+
+void ui_element_paint(Element *element, Painter *painter) {
+	// Compute the intersection of where the element is allowed to draw, element->clip,
+	// with the area requested to be drawn, painter->clip.
+	Rect clip = rect_intersection(element->clip, painter->clip);
+
+	// If the above regions do not overlap, return here,
+	// and do not recurse into our descendant elements
+	// (since their clip rectangles are contained within element->clip).
+	if (!rect_valid(clip)) {
+		return;
+	}
+
+	// Set the painter's clip and ask the element to paint itself.
+	painter->clip = clip;
+	element_message(element, MSG_PAINT, 0, painter);
+
+	// Recurse into each child, restoring the clip each time.
+	for (uintptr_t i = 0; i < element->child_count; i++) {
+		painter->clip = clip;
+		ui_element_paint(element->children[i], painter);
+	}
+}
+
+void ui_update(void) {
+	for (uintptr_t i = 0; i < global_state.window_count; i++) {
+		Window *window = global_state.windows[i];
+
+		// Is there anything marked for repaint?
+		if (rect_valid(window->update_region)) {
+			// Setup the painter using the window's buffer.
+			Painter painter;
+			painter.bits = window->bits;
+			painter.width = window->width;
+			painter.height = window->height;
+			painter.clip = rect_intersection(
+				rect_make(0, window->width, 0, window->height), 
+				window->update_region);
+
+			// Paint everything in the update region.
+			ui_element_paint(&window->element, &painter);
+
+			// Tell the platform layer to put the result onto the screen.
+			platform_window_end_paint(window, &painter);
+
+			// Clear the update region, ready for the next input event cycle.
+			window->update_region = rect_make(0, 0, 0, 0);
+		}
+	}
+}
+
+
+/////////////////////////////////////////
+// Test usage code.
+/////////////////////////////////////////
 
 Element *elementA, *elementB, *elementC, *elementD;
 
 int ElementAMessage(Element *element, Message message, int di, void *dp) {
 	(void) di;
-	(void) dp;
 
 	Rect bounds = element->bounds;
 
-	if (message == MSG_LAYOUT) {
+	if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, bounds, 0xFF77FF);
+	} else if (message == MSG_LAYOUT) {
 		fprintf(stderr, "layout A with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
 		element_move(elementB, rect_make(bounds.l + 20, bounds.r - 20, bounds.t + 20, bounds.b - 20), false);
 	}
@@ -115,11 +172,12 @@ int ElementAMessage(Element *element, Message message, int di, void *dp) {
 
 int ElementBMessage(Element *element, Message message, int di, void *dp) {
 	(void) di;
-	(void) dp;
 
 	Rect bounds = element->bounds;
 
-	if (message == MSG_LAYOUT) {
+	if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, bounds, 0xDDDDE0);
+	} else if (message == MSG_LAYOUT) {
 		fprintf(stderr, "layout B with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
 		element_move(elementC, rect_make(bounds.l - 40, bounds.l + 40, bounds.t + 40, bounds.b - 40), false);
 		element_move(elementD, rect_make(bounds.r - 40, bounds.r + 40, bounds.t + 40, bounds.b - 40), false);
@@ -130,14 +188,13 @@ int ElementBMessage(Element *element, Message message, int di, void *dp) {
 
 int ElementCMessage(Element *element, Message message, int di, void *dp) {
 	(void) di;
-	(void) dp;
 
 	Rect bounds = element->bounds;
-	Rect clip = element->clip;
 
-	if (message == MSG_LAYOUT) {
+	if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, bounds, 0x3377FF);
+	} else if (message == MSG_LAYOUT) {
 		fprintf(stderr, "layout C with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
-		fprintf(stderr, "\tclipped to (%d->%d;%d->%d)\n", clip.l, clip.r, clip.t, clip.b);
 	}
 
 	return 0;
@@ -145,14 +202,13 @@ int ElementCMessage(Element *element, Message message, int di, void *dp) {
 
 int ElementDMessage(Element *element, Message message, int di, void *dp) {
 	(void) di;
-	(void) dp;
 
 	Rect bounds = element->bounds;
-	Rect clip = element->clip;
 
-	if (message == MSG_LAYOUT) {
+	if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, bounds, 0x33CC33);
+	} else if (message == MSG_LAYOUT) {
 		fprintf(stderr, "layout D with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
-		fprintf(stderr, "\tclipped to (%d->%d;%d->%d)\n", clip.l, clip.r, clip.t, clip.b);
 	}
 
 	return 0;

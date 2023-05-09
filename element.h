@@ -3,6 +3,7 @@ typedef struct Element Element;
 typedef enum Message {
 	MSG_NONE,
 	MSG_LAYOUT,
+	MSG_PAINT,
 	MSG_USER,
 } Message;
 
@@ -20,6 +21,14 @@ struct Element {
 	void *cp; // Context pointer (for user).
 };
 
+typedef struct {
+	Rect clip;         // The rectangle the element should draw into.
+	uint32_t *bits;    // The bitmap itself. bits[y * painter->width + x] gives the RGB value of pixel (x, y).
+	int width, height; // The width and height of the bitmap.
+} Painter;
+
 Element *element_create(size_t bytes, Element *parent, uint32_t flags, MessageHandler message_class);
 int element_message(Element *element, Message message, int data_int, void *data_ptr);
 void element_move(Element *element, Rect bounds, bool always_layout);
+void draw_block(Painter *painter, Rect rect, uint32_t color);
+void element_repaint(Element *element, Rect *region);

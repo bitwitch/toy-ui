@@ -1,11 +1,35 @@
+void ui_update(void);
+
 int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
+	(void) data_int;
+	(void) data_ptr;
 	if (message == MSG_LAYOUT && element->child_count > 0) {
 		element_move(element->children[0], element->bounds, false);
+		element_repaint(element, NULL);
 	}
 	return 0;
 }
+void platform_window_end_paint(Window *window, Painter *painter);
 
 #ifdef PLATFORM_WIN32
+
+void platform_window_end_paint(Window *window, Painter *painter) {
+	(void)painter;
+	HDC dc = GetDC(window->hwnd);
+	BITMAPINFOHEADER info = { 0 };
+	info.biSize = sizeof(info);
+	info.biWidth = window->width; 
+	info.biHeight = window->height;
+	info.biPlanes = 1;
+	info.biBitCount = 32;
+	StretchDIBits(dc, 
+		window->update_region.l, window->update_region.t, 
+		window->update_region.r - window->update_region.l, window->update_region.b - window->update_region.t,
+		window->update_region.l, window->update_region.b + 1, 
+		window->update_region.r - window->update_region.l, window->update_region.t - window->update_region.b,
+		window->bits, (BITMAPINFO *) &info, DIB_RGB_COLORS, SRCCOPY);
+	ReleaseDC(window->hwnd, dc);
+}
 
 LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	Window *window = (Window *) GetWindowLongPtr(hwnd, GWLP_USERDATA);
@@ -21,9 +45,27 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 		GetClientRect(hwnd, &client);
 		window->width = client.right;
 		window->height = client.bottom;
+		window->bits = (uint32_t*)realloc(window->bits, window->width * window->height * 4);
 		window->element.bounds = rect_make(0, window->width, 0, window->height);
 		window->element.clip = rect_make(0, window->width, 0, window->height);
 		element_message(&window->element, MSG_LAYOUT, 0, 0);
+		ui_update();
+	} else if (message == WM_PAINT) {
+		PAINTSTRUCT paint;
+		HDC dc = BeginPaint(hwnd, &paint);
+		BITMAPINFOHEADER info = { 0 };
+		info.biSize = sizeof(info);
+		info.biWidth = window->width;
+		info.biHeight = -window->height;
+		info.biPlanes = 1;
+		info.biBitCount = 32;
+		StretchDIBits(dc, 0, 0, 
+			window->element.bounds.r - window->element.bounds.l, 
+			window->element.bounds.b - window->element.bounds.t, 
+			0, 0, window->element.bounds.r - window->element.bounds.l, 
+			window->element.bounds.b - window->element.bounds.t,
+			window->bits, (BITMAPINFO*)&info, DIB_RGB_COLORS, SRCCOPY);
+		EndPaint(hwnd, &paint);
 	} else {
 		return DefWindowProc(hwnd, message, wParam, lParam);
 	}
@@ -33,6 +75,7 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
 Window *platform_create_window(const char *title, int width, int height) {
 	Window *window = (Window *) element_create(sizeof(Window), NULL, 0, platform_window_message);
+	window->element.window = window;
 
 	global_state.window_count++;
 	global_state.windows = realloc(global_state.windows, sizeof(Window*) * global_state.window_count);
@@ -69,6 +112,13 @@ void platform_init() {
 
 #ifdef PLATFORM_LINUX
 
+void platform_window_end_paint(Window *window, Painter *painter) {
+	(void) painter;
+	XPutImage(global_state.display, window->window, DefaultGC(global_state.display, 0), window->image, 
+		window->update_region.l, window->update_region.t, window->update_region.l, window->update_region.t,
+		window->update_region.r - window->update_region.l, window->update_region.b - window->update_region.t);
+}
+
 Window *find_window(X11Window window) {
 	for (uintptr_t i = 0; i < global_state.window_count; i++) {
 		if (global_state.windows[i]->window == window) {
@@ -80,6 +130,7 @@ Window *find_window(X11Window window) {
 
 Window *platform_create_window(const char *title, int width, int height) {
 	Window *window = (Window *) element_create(sizeof(Window), NULL, 0, platform_window_message);
+	window->element.window = window;
 	global_state.window_count++;
 	global_state.windows = realloc(global_state.windows, sizeof(Window *) * global_state.window_count);
 	global_state.windows[global_state.window_count - 1] = window;
@@ -101,12 +152,18 @@ Window *platform_create_window(const char *title, int width, int height) {
 }
 
 int platform_message_loop() {
+	ui_update();
 	while (true) {
 		XEvent event;
 		XNextEvent(global_state.display, &event);
 
 		if (event.type == ClientMessage && (Atom) event.xclient.data.l[0] == global_state.windowClosedID) {
 			return 0;
+		} else if (event.type == Expose) {
+			Window *window = find_window(event.xexpose.window);
+			if (!window) continue;
+			XPutImage(global_state.display, window->window, DefaultGC(global_state.display, 0), 
+					window->image, 0, 0, 0, 0, window->width, window->height);
 		} else if (event.type == ConfigureNotify) {
 			Window *window = find_window(event.xconfigure.window);
 			if (!window) continue;
@@ -114,6 +171,7 @@ int platform_message_loop() {
 			if (window->width != event.xconfigure.width || window->height != event.xconfigure.height) {
 				window->width = event.xconfigure.width;
 				window->height = event.xconfigure.height;
+				window->bits = (uint32_t*)realloc(window->bits, window->width * window->height * 4);
 				window->image->width = window->width;
 				window->image->height = window->height;
 				window->image->bytes_per_line = window->width * 4;
@@ -121,6 +179,7 @@ int platform_message_loop() {
 				window->element.bounds = rect_make(0, window->width, 0, window->height);
 				window->element.clip = rect_make(0, window->width, 0, window->height);
 				element_message(&window->element, MSG_LAYOUT, 0, 0);
+				ui_update();
 			}
 		}
 	}

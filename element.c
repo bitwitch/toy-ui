@@ -38,3 +38,27 @@ void element_move(Element *element, Rect bounds, bool always_layout) {
 		element_message(element, MSG_LAYOUT, 0, 0);
 	}
 }
+
+void draw_block(Painter *painter, Rect rect, uint32_t color) {
+	// Intersect the rectangle we want to fill with the clip, i.e. the rectangle we're allowed to draw into.
+	rect = rect_intersection(painter->clip, rect);
+
+	for (int y = rect.t; y < rect.b; y++) {
+		for (int x = rect.l; x < rect.r; x++) {
+			painter->bits[y * painter->width + x] = color;
+		}
+	}
+}
+
+void element_repaint(Element *element, Rect *region) {
+	if (!region) region = &element->bounds;
+
+	Rect r = rect_intersection(element->clip, *region);
+	if (rect_valid(r)) {
+		if (rect_valid(element->window->update_region)) {
+			element->window->update_region = rect_bounding(element->window->update_region, r);
+		} else {
+			element->window->update_region = r;
+		}
+	}
+}
