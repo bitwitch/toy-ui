@@ -92,9 +92,39 @@ void test_helpers(void) {
 	free(dest);
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Test element messages
+//////////////////////////////////////////////////////////////////////////////
+
+int ElementAMessageClass(Element *element, Message message, int di, void *dp) {
+	(void) element;
+	printf("A class: %d, %d, %p\n", message, di, dp);
+	return message == MSG_USER + 1;
+}
+
+int ElementAMessageUser(Element *element, Message message, int di, void *dp) {
+	(void) element;
+	printf("A user: %d, %d, %p\n", message, di, dp);
+	return message == MSG_USER + 2;
+}
+
+int ElementBMessageClass(Element *element, Message message, int di, void *dp) {
+	(void) element;
+	printf("B class: %d, %d, %p\n", message, di, dp);
+	return 0;
+}
+
 int main() {
 	platform_init();
-	platform_create_window("Hello, world", 300, 200);
-	platform_create_window("Another window", 300, 200);
+	Window *window = platform_create_window("Hello, world", 300, 200);
+	Element *elementA = element_create(sizeof(Element), &window->element, 0, ElementAMessageClass);
+	elementA->message_user = ElementAMessageUser;
+	Element *elementB = element_create(sizeof(Element), elementA, 0, ElementBMessageClass);
+	printf("%d\n", element_message(elementA, MSG_USER + 1, 1, NULL));
+	printf("%d\n", element_message(elementA, MSG_USER + 2, 2, NULL));
+	printf("%d\n", element_message(elementA, MSG_USER + 3, 3, NULL));
+	printf("%d\n", element_message(elementB, MSG_USER + 1, 1, NULL));
+	printf("%d\n", element_message(elementB, MSG_USER + 2, 2, NULL));
+	printf("%d\n", element_message(elementB, MSG_USER + 3, 3, NULL));
 	return platform_message_loop();
 }

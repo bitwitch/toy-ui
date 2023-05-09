@@ -1,3 +1,7 @@
+int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
+	return 0;
+}
+
 #ifdef PLATFORM_WIN32
 
 LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -22,7 +26,7 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 }
 
 Window *platform_create_window(const char *title, int width, int height) {
-	Window *window = (Window *) element_create(sizeof(Window), NULL, 0);
+	Window *window = (Window *) element_create(sizeof(Window), NULL, 0, platform_window_message);
 
 	global_state.window_count++;
 	global_state.windows = realloc(global_state.windows, sizeof(Window*) * global_state.window_count);
@@ -69,7 +73,7 @@ Window *find_window(X11Window window) {
 }
 
 Window *platform_create_window(const char *title, int width, int height) {
-	Window *window = (Window *) element_create(sizeof(Window), NULL, 0);
+	Window *window = (Window *) element_create(sizeof(Window), NULL, 0, platform_window_message);
 	global_state.window_count++;
 	global_state.windows = realloc(global_state.windows, sizeof(Window *) * global_state.window_count);
 	global_state.windows[global_state.window_count - 1] = window;
