@@ -22,6 +22,7 @@
 
 typedef struct Window Window;
 
+#include "rect.h"
 #include "element.h"
 
 struct Window {
@@ -96,35 +97,73 @@ void test_helpers(void) {
 // Test element messages
 //////////////////////////////////////////////////////////////////////////////
 
-int ElementAMessageClass(Element *element, Message message, int di, void *dp) {
-	(void) element;
-	printf("A class: %d, %d, %p\n", message, di, dp);
-	return message == MSG_USER + 1;
+Element *elementA, *elementB, *elementC, *elementD;
+
+int ElementAMessage(Element *element, Message message, int di, void *dp) {
+	(void) di;
+	(void) dp;
+
+	Rect bounds = element->bounds;
+
+	if (message == MSG_LAYOUT) {
+		fprintf(stderr, "layout A with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
+		element_move(elementB, rect_make(bounds.l + 20, bounds.r - 20, bounds.t + 20, bounds.b - 20), false);
+	}
+
+	return 0;
 }
 
-int ElementAMessageUser(Element *element, Message message, int di, void *dp) {
-	(void) element;
-	printf("A user: %d, %d, %p\n", message, di, dp);
-	return message == MSG_USER + 2;
+int ElementBMessage(Element *element, Message message, int di, void *dp) {
+	(void) di;
+	(void) dp;
+
+	Rect bounds = element->bounds;
+
+	if (message == MSG_LAYOUT) {
+		fprintf(stderr, "layout B with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
+		element_move(elementC, rect_make(bounds.l - 40, bounds.l + 40, bounds.t + 40, bounds.b - 40), false);
+		element_move(elementD, rect_make(bounds.r - 40, bounds.r + 40, bounds.t + 40, bounds.b - 40), false);
+	}
+
+	return 0;
 }
 
-int ElementBMessageClass(Element *element, Message message, int di, void *dp) {
-	(void) element;
-	printf("B class: %d, %d, %p\n", message, di, dp);
+int ElementCMessage(Element *element, Message message, int di, void *dp) {
+	(void) di;
+	(void) dp;
+
+	Rect bounds = element->bounds;
+	Rect clip = element->clip;
+
+	if (message == MSG_LAYOUT) {
+		fprintf(stderr, "layout C with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
+		fprintf(stderr, "\tclipped to (%d->%d;%d->%d)\n", clip.l, clip.r, clip.t, clip.b);
+	}
+
+	return 0;
+}
+
+int ElementDMessage(Element *element, Message message, int di, void *dp) {
+	(void) di;
+	(void) dp;
+
+	Rect bounds = element->bounds;
+	Rect clip = element->clip;
+
+	if (message == MSG_LAYOUT) {
+		fprintf(stderr, "layout D with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
+		fprintf(stderr, "\tclipped to (%d->%d;%d->%d)\n", clip.l, clip.r, clip.t, clip.b);
+	}
+
 	return 0;
 }
 
 int main() {
 	platform_init();
 	Window *window = platform_create_window("Hello, world", 300, 200);
-	Element *elementA = element_create(sizeof(Element), &window->element, 0, ElementAMessageClass);
-	elementA->message_user = ElementAMessageUser;
-	Element *elementB = element_create(sizeof(Element), elementA, 0, ElementBMessageClass);
-	printf("%d\n", element_message(elementA, MSG_USER + 1, 1, NULL));
-	printf("%d\n", element_message(elementA, MSG_USER + 2, 2, NULL));
-	printf("%d\n", element_message(elementA, MSG_USER + 3, 3, NULL));
-	printf("%d\n", element_message(elementB, MSG_USER + 1, 1, NULL));
-	printf("%d\n", element_message(elementB, MSG_USER + 2, 2, NULL));
-	printf("%d\n", element_message(elementB, MSG_USER + 3, 3, NULL));
+	elementA = element_create(sizeof(Element), &window->element, 0, ElementAMessage);
+	elementB = element_create(sizeof(Element), elementA, 0, ElementBMessage);
+	elementC = element_create(sizeof(Element), elementB, 0, ElementCMessage);
+	elementD = element_create(sizeof(Element), elementB, 0, ElementDMessage);
 	return platform_message_loop();
 }

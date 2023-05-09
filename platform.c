@@ -1,4 +1,7 @@
 int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
+	if (message == MSG_LAYOUT && element->child_count > 0) {
+		element_move(element->children[0], element->bounds, false);
+	}
 	return 0;
 }
 
@@ -18,6 +21,9 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 		GetClientRect(hwnd, &client);
 		window->width = client.right;
 		window->height = client.bottom;
+		window->element.bounds = rect_make(0, window->width, 0, window->height);
+		window->element.clip = rect_make(0, window->width, 0, window->height);
+		element_message(&window->element, MSG_LAYOUT, 0, 0);
 	} else {
 		return DefWindowProc(hwnd, message, wParam, lParam);
 	}
@@ -112,6 +118,9 @@ int platform_message_loop() {
 				window->image->height = window->height;
 				window->image->bytes_per_line = window->width * 4;
 				window->image->data = (char *) window->bits;
+				window->element.bounds = rect_make(0, window->width, 0, window->height);
+				window->element.clip = rect_make(0, window->width, 0, window->height);
+				element_message(&window->element, MSG_LAYOUT, 0, 0);
 			}
 		}
 	}

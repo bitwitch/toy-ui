@@ -25,3 +25,16 @@ int element_message(Element *element, Message message, int data_int, void *data_
 	}
 	return result;
 }
+
+void element_move(Element *element, Rect bounds, bool always_layout) {
+	Rect old_clip = element->clip;
+	element->clip = rect_intersection(element->parent->clip, bounds);
+
+	if (!rect_equals(element->bounds, bounds) || 
+		!rect_equals(element->clip, old_clip) || 
+		always_layout) 
+	{
+		element->bounds = bounds;
+		element_message(element, MSG_LAYOUT, 0, 0);
+	}
+}

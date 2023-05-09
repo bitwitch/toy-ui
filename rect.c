@@ -1,7 +1,3 @@
-typedef struct {
-	int l, r, t, b;
-} Rect;
-
 Rect rect_make(int l, int r, int t, int b) {
 	return (Rect){.l=l, .r=r, .t=t, .b=b};
 }
