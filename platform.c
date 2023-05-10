@@ -1,5 +1,6 @@
 void ui_update(void);
 void ui_window_input_event(Window *window, Message message, int data_int, void *data_ptr);
+void ui_window_set_pressed(Window *window, Element *element, MouseButton button);
 
 int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
 	(void) data_int;
@@ -68,9 +69,32 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 		ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
 	} else if (message == WM_MOUSELEAVE) {
 		window->tracking_leave = false;
-		window->mouse_x = -1;
-		window->mouse_y = -1;
+		if (!window->pressed) {
+			window->mouse_x = -1;
+			window->mouse_y = -1;
+		}
 		ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
+	} else if (message == WM_LBUTTONDOWN) {
+		SetCapture(hwnd);
+		ui_window_input_event(window, MSG_MOUSE_LEFT_DOWN, 0, 0);
+	} else if (message == WM_LBUTTONUP) {
+		if (window->pressed_mouse_button == MOUSE_BUTTON_LEFT) 
+			ReleaseCapture();
+		ui_window_input_event(window, MSG_MOUSE_LEFT_UP, 0, 0);
+	} else if (message == WM_MBUTTONDOWN) {
+		SetCapture(hwnd);
+		ui_window_input_event(window, MSG_MOUSE_MIDDLE_DOWN, 0, 0);
+	} else if (message == WM_MBUTTONUP) {
+		if (window->pressed_mouse_button == MOUSE_BUTTON_MIDDLE) 
+			ReleaseCapture();
+		ui_window_input_event(window, MSG_MOUSE_MIDDLE_UP, 0, 0);
+	} else if (message == WM_RBUTTONDOWN) {
+		SetCapture(hwnd);
+		ui_window_input_event(window, MSG_MOUSE_RIGHT_DOWN, 0, 0);
+	} else if (message == WM_RBUTTONUP) {
+		if (window->pressed_mouse_button == MOUSE_BUTTON_RIGHT) 
+			ReleaseCapture();
+		ui_window_input_event(window, MSG_MOUSE_RIGHT_UP, 0, 0);
 	} else if (message == WM_PAINT) {
 		PAINTSTRUCT paint;
 		HDC dc = BeginPaint(hwnd, &paint);
@@ -212,11 +236,25 @@ int platform_message_loop() {
 			window->mouse_y = event.xmotion.y;
 			ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
 		} else if (event.type == LeaveNotify) {
-			Window *window = _FindWindow(event.xcrossing.window);
+			Window *window = find_window(event.xcrossing.window);
 			if (!window) continue;
-			window->mouse_x = -1;
-			window->mouse_y = -1;
+
+			if (!window->pressed) {
+				window->mouse_x = -1;
+				window->mouse_y = -1;
+			}
+
 			ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
+		} else if (event.type == ButtonPress || event.type == ButtonRelease) {
+			Window *window = find_window(event.xbutton.window);
+			if (!window) continue;
+			window->mouse_x = event.xbutton.x;
+			window->mouse_y = event.xbutton.y;
+			if (event.xbutton.button >= 1 && event.xbutton.button <= 3) {
+				ui_window_input_event(window, 
+					(Message)((event.type == ButtonPress ? MSG_MOUSE_LEFT_DOWN : MSG_MOUSE_LEFT_UP) 
+					+ event.xbutton.button * 2 - 2), 0, 0);
+			}
 		}
 	}
 }

@@ -25,6 +25,13 @@ typedef struct Window Window;
 #include "rect.h"
 #include "element.h"
 
+typedef enum {
+	MOUSE_BUTTON_NONE,
+	MOUSE_BUTTON_LEFT,
+	MOUSE_BUTTON_MIDDLE,
+	MOUSE_BUTTON_RIGHT,
+} MouseButton;
+
 struct Window {
 	Element element;
 	uint32_t *bits; // The bitmap image of the window's content.
@@ -32,6 +39,8 @@ struct Window {
 	Rect update_region; // area that needs to be repainted at the next 'update point'
 	int mouse_x, mouse_y;
 	Element *hovered;
+	Element *pressed;
+	MouseButton pressed_mouse_button;
 
 #ifdef PLATFORM_WIN32
 	HWND hwnd;
@@ -100,18 +109,85 @@ void test_helpers(void) {
 // Core UI Code
 //////////////////////////////////////////////////////////////////////////////
 
-void ui_window_input_event(Window *window, Message message, int data_int, void *data_ptr) {	
-	Element *hovered = element_find_by_point(&window->element, window->mouse_x, window->mouse_y);
+// element is NULL if mouse button not being pressed
+// button is the mouse button that went up OR down
+void ui_window_set_pressed(Window *window, Element *element, MouseButton button) {
+	Element *previous = window->pressed;
+	window->pressed = element;
+	window->pressed_mouse_button = button;
+	if (previous) element_message(previous, MSG_UPDATE, UPDATE_PRESSED, 0);
+	if (element)  element_message(element, MSG_UPDATE, UPDATE_PRESSED, 0);
+}
 
-	if (message == MSG_MOUSE_MOVE) {
-		element_message(hovered, MSG_MOUSE_MOVE, data_int, data_ptr);
+void ui_window_input_event(Window *window, Message message, int data_int, void *data_ptr) {	
+	if (window->pressed) {
+		if (message == MSG_MOUSE_MOVE) {
+			// Mouse move events become mouse drag messages, sent to the
+			// element we pressed the mouse button down over.
+			element_message(window->pressed, MSG_MOUSE_DRAG, data_int, data_ptr);
+		} else if (message == MSG_MOUSE_LEFT_UP && window->pressed_mouse_button == MOUSE_BUTTON_LEFT) {
+			if (window->hovered == window->pressed) {
+				// If left mouse is released on the same element that it was previously down on, 
+				// send a clicked message to that element.
+				element_message(window->pressed, MSG_CLICKED, data_int, data_ptr);
+			}
+			// stop pressing the element
+			element_message(window->pressed, MSG_MOUSE_LEFT_UP, data_int, data_ptr);
+			ui_window_set_pressed(window, NULL, MOUSE_BUTTON_LEFT);
+		} else if (message == MSG_MOUSE_MIDDLE_UP && window->pressed_mouse_button == MOUSE_BUTTON_MIDDLE) {
+			// If middle mouse is released on the same element that it was previously down on,
+			// stop pressing the element
+			element_message(window->pressed, MSG_MOUSE_MIDDLE_UP, data_int, data_ptr);
+			ui_window_set_pressed(window, NULL, MOUSE_BUTTON_MIDDLE);
+		} else if (message == MSG_MOUSE_RIGHT_UP && window->pressed_mouse_button == MOUSE_BUTTON_RIGHT) {
+			// If right mouse is released on the same element that it was previously down on,
+			// stop pressing the element
+			element_message(window->pressed, MSG_MOUSE_RIGHT_UP, data_int, data_ptr);
+			ui_window_set_pressed(window, NULL, MOUSE_BUTTON_RIGHT);
+		} 
 	}
 
-	if (hovered != window->hovered) {
-		Element *previous = window->hovered;
-		window->hovered = hovered;
-		element_message(previous, MSG_UPDATE, UPDATE_HOVERED, 0);
-		element_message(hovered, MSG_UPDATE, UPDATE_HOVERED, 0);
+
+	if (window->pressed) {
+		// While a mouse button is held, the hovered element is either the pressed element,
+		// or the window element (at the root of the hierarchy).
+		// Other elements are not allowed to be considered hovered until the button is released.
+		// Here, we update the hovered field and send out MSG_UPDATE messages as necessary.
+		bool inside = rect_contains(window->pressed->clip, window->mouse_x, window->mouse_y);
+		if (inside && window->hovered == &window->element) {
+			window->hovered = window->pressed;
+			element_message(window->pressed, MSG_UPDATE, UPDATE_HOVERED, 0);
+		} else if (!inside && window->hovered == window->pressed) {
+			window->hovered = &window->element;
+			element_message(window->pressed, MSG_UPDATE, UPDATE_HOVERED, 0);
+		}
+
+	} else {
+		// No element is currently pressed.
+		Element *hovered = element_find_by_point(&window->element, window->mouse_x, window->mouse_y);
+
+		if (message == MSG_MOUSE_MOVE) {
+			element_message(hovered, message, data_int, data_ptr);
+		} else if (message == MSG_MOUSE_LEFT_DOWN) {
+			// If the left mouse button is pressed, start pressing the hovered element.
+			ui_window_set_pressed(window, hovered, MOUSE_BUTTON_LEFT);
+			element_message(hovered, message, data_int, data_ptr);
+		} else if (message == MSG_MOUSE_MIDDLE_DOWN) {
+			// If the middle mouse button is pressed, start pressing the hovered element.
+			ui_window_set_pressed(window, hovered, MOUSE_BUTTON_MIDDLE);
+			element_message(hovered, message, data_int, data_ptr);
+		} else if (message == MSG_MOUSE_RIGHT_DOWN) {
+			// If the right mouse button is pressed, start pressing the hovered element.
+			ui_window_set_pressed(window, hovered, MOUSE_BUTTON_RIGHT);
+			element_message(hovered, message, data_int, data_ptr);
+		}
+
+		if (hovered != window->hovered) {
+			Element *previous = window->hovered;
+			window->hovered = hovered;
+			element_message(previous, MSG_UPDATE, UPDATE_HOVERED, 0);
+			element_message(hovered, MSG_UPDATE, UPDATE_HOVERED, 0);
+		}
 	}
 
 	// Process any queued repaints.
@@ -178,26 +254,38 @@ int ParentElementMessage(Element *element, Message message, int di, void *dp) {
 	if (message == MSG_PAINT) {
 		draw_block((Painter *) dp, element->bounds, 0xFFCCFF);
 	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout parent with bounds (%d->%d;%d->%d)\n", element->bounds.l, element->bounds.r, element->bounds.t, element->bounds.b);
+		fprintf(stderr, "layout with bounds (%d->%d;%d->%d)\n", element->bounds.l, element->bounds.r, element->bounds.t, element->bounds.b);
 		element_move(childElement, rect_make(50, 100, 50, 100), false);
-	} else if (message == MSG_MOUSE_MOVE) {
-		fprintf(stderr, "mouse move over parent at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
-	} else if (message == MSG_UPDATE) {
-		fprintf(stderr, "update parent %d\n", di);
 	}
 
 	return 0;
 }
 
 int ChildElementMessage(Element *element, Message message, int di, void *dp) {
+	(void) di;
+
 	if (message == MSG_PAINT) {
 		draw_block((Painter *) dp, element->bounds, 0x444444);
-	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout child with bounds (%d->%d;%d->%d)\n", element->bounds.l, element->bounds.r, element->bounds.t, element->bounds.b);
 	} else if (message == MSG_MOUSE_MOVE) {
-		fprintf(stderr, "mouse move over child at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
+		fprintf(stderr, "mouse move at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
+	} else if (message == MSG_MOUSE_DRAG) {
+		fprintf(stderr, "mouse drag at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
 	} else if (message == MSG_UPDATE) {
-		fprintf(stderr, "update child %d\n", di);
+		fprintf(stderr, "update %d\n", di);
+	} else if (message == MSG_MOUSE_LEFT_DOWN) {
+		fprintf(stderr, "left down\n");
+	} else if (message == MSG_MOUSE_RIGHT_DOWN) {
+		fprintf(stderr, "right down\n");
+	} else if (message == MSG_MOUSE_MIDDLE_DOWN) {
+		fprintf(stderr, "middle down\n");
+	} else if (message == MSG_MOUSE_LEFT_UP) {
+		fprintf(stderr, "left up\n");
+	} else if (message == MSG_MOUSE_RIGHT_UP) {
+		fprintf(stderr, "right up\n");
+	} else if (message == MSG_MOUSE_MIDDLE_UP) {
+		fprintf(stderr, "middle up\n");
+	} else if (message == MSG_CLICKED) {
+		fprintf(stderr, "clicked\n");
 	}
 
 	return 0;

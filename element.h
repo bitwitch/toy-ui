@@ -6,12 +6,21 @@ typedef enum {
 	MSG_PAINT,
 	MSG_MOUSE_MOVE,
 	MSG_UPDATE,
+	MSG_MOUSE_LEFT_DOWN,   // Left mouse button pressed. (Sent to the element the mouse cursor is over.)
+	MSG_MOUSE_LEFT_UP,     // Left mouse button released. (Sent to the element MSG_LEFT_DOWN was sent to.)
+	MSG_MOUSE_MIDDLE_DOWN, // Middle mouse button pressed. (Sent to the element the mouse cursor is over.)
+	MSG_MOUSE_MIDDLE_UP,   // Middle mouse button released. (Sent to the element MSG_MIDDLE_DOWN was sent to.)
+	MSG_MOUSE_RIGHT_DOWN,  // Right mouse button pressed. (Sent to the element the mouse cursor is over.)
+	MSG_MOUSE_RIGHT_UP,    // Right mouse button released. (Sent to the element MSG_RIGHT_DOWN was sent to.)
+	MSG_MOUSE_DRAG,        // Mouse moved while holding buttons. (Sent to the element MSG_*_DOWN was sent to.)
+	MSG_CLICKED,           // Left mouse button released while hovering over the element that MSG_LEFT_UP was sent to.
 	MSG_USER,
 } Message;
 
 typedef enum {
 	UPDATE_NONE,
 	UPDATE_HOVERED,
+	UPDATE_PRESSED,
 } UpdateKind;
 
 typedef int (*MessageHandler)(struct Element *element, Message message, int data_int, void *data_ptr);
