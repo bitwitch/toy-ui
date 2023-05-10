@@ -1,11 +1,18 @@
 typedef struct Element Element;
 
-typedef enum Message {
+typedef enum {
 	MSG_NONE,
 	MSG_LAYOUT,
 	MSG_PAINT,
+	MSG_MOUSE_MOVE,
+	MSG_UPDATE,
 	MSG_USER,
 } Message;
+
+typedef enum {
+	UPDATE_NONE,
+	UPDATE_HOVERED,
+} UpdateKind;
 
 typedef int (*MessageHandler)(struct Element *element, Message message, int data_int, void *data_ptr);
 
@@ -30,5 +37,8 @@ typedef struct {
 Element *element_create(size_t bytes, Element *parent, uint32_t flags, MessageHandler message_class);
 int element_message(Element *element, Message message, int data_int, void *data_ptr);
 void element_move(Element *element, Rect bounds, bool always_layout);
-void draw_block(Painter *painter, Rect rect, uint32_t color);
 void element_repaint(Element *element, Rect *region);
+Element *element_find_by_point(Element *element, int x, int y);
+void draw_block(Painter *painter, Rect rect, uint32_t color);
+void draw_rect(Painter *painter, Rect r, uint32_t fill_color, uint32_t border_color);
+void draw_string(Painter *painter, Rect bounds, char *string, size_t bytes, uint32_t color, bool align_center);

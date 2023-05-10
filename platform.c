@@ -1,4 +1,5 @@
 void ui_update(void);
+void ui_window_input_event(Window *window, Message message, int data_int, void *data_ptr);
 
 int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
 	(void) data_int;
@@ -50,6 +51,26 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 		window->element.clip = rect_make(0, window->width, 0, window->height);
 		element_message(&window->element, MSG_LAYOUT, 0, 0);
 		ui_update();
+	} else if (message == WM_MOUSEMOVE) {
+		if (!window->tracking_leave) {
+			window->tracking_leave = true;
+			TRACKMOUSEEVENT leave = { 0 };
+			leave.cbSize = sizeof(TRACKMOUSEEVENT);
+			leave.dwFlags = TME_LEAVE;
+			leave.hwndTrack = hwnd;
+			TrackMouseEvent(&leave);
+		}
+		POINT cursor;
+		GetCursorPos(&cursor);
+		ScreenToClient(hwnd, &cursor);
+		window->mouse_x = cursor.x;
+		window->mouse_y = cursor.y;
+		ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
+	} else if (message == WM_MOUSELEAVE) {
+		window->tracking_leave = false;
+		window->mouse_x = -1;
+		window->mouse_y = -1;
+		ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
 	} else if (message == WM_PAINT) {
 		PAINTSTRUCT paint;
 		HDC dc = BeginPaint(hwnd, &paint);
@@ -76,6 +97,7 @@ LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 Window *platform_create_window(const char *title, int width, int height) {
 	Window *window = (Window *) element_create(sizeof(Window), NULL, 0, platform_window_message);
 	window->element.window = window;
+	window->hovered = &window->element;
 
 	global_state.window_count++;
 	global_state.windows = realloc(global_state.windows, sizeof(Window*) * global_state.window_count);
@@ -131,6 +153,8 @@ Window *find_window(X11Window window) {
 Window *platform_create_window(const char *title, int width, int height) {
 	Window *window = (Window *) element_create(sizeof(Window), NULL, 0, platform_window_message);
 	window->element.window = window;
+	window->hovered = &window->element;
+
 	global_state.window_count++;
 	global_state.windows = realloc(global_state.windows, sizeof(Window *) * global_state.window_count);
 	global_state.windows[global_state.window_count - 1] = window;
@@ -181,6 +205,18 @@ int platform_message_loop() {
 				element_message(&window->element, MSG_LAYOUT, 0, 0);
 				ui_update();
 			}
+		} else if (event.type == MotionNotify) {
+			Window *window = find_window(event.xmotion.window);
+			if (!window) continue;
+			window->mouse_x = event.xmotion.x;
+			window->mouse_y = event.xmotion.y;
+			ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
+		} else if (event.type == LeaveNotify) {
+			Window *window = _FindWindow(event.xcrossing.window);
+			if (!window) continue;
+			window->mouse_x = -1;
+			window->mouse_y = -1;
+			ui_window_input_event(window, MSG_MOUSE_MOVE, 0, 0);
 		}
 	}
 }

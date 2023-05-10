@@ -30,6 +30,8 @@ struct Window {
 	uint32_t *bits; // The bitmap image of the window's content.
 	int width, height; // The size of the area of the window we can draw onto.
 	Rect update_region; // area that needs to be repainted at the next 'update point'
+	int mouse_x, mouse_y;
+	Element *hovered;
 
 #ifdef PLATFORM_WIN32
 	HWND hwnd;
@@ -98,6 +100,24 @@ void test_helpers(void) {
 // Core UI Code
 //////////////////////////////////////////////////////////////////////////////
 
+void ui_window_input_event(Window *window, Message message, int data_int, void *data_ptr) {	
+	Element *hovered = element_find_by_point(&window->element, window->mouse_x, window->mouse_y);
+
+	if (message == MSG_MOUSE_MOVE) {
+		element_message(hovered, MSG_MOUSE_MOVE, data_int, data_ptr);
+	}
+
+	if (hovered != window->hovered) {
+		Element *previous = window->hovered;
+		window->hovered = hovered;
+		element_message(previous, MSG_UPDATE, UPDATE_HOVERED, 0);
+		element_message(hovered, MSG_UPDATE, UPDATE_HOVERED, 0);
+	}
+
+	// Process any queued repaints.
+	ui_update();
+}
+
 void ui_element_paint(Element *element, Painter *painter) {
 	// Compute the intersection of where the element is allowed to draw, element->clip,
 	// with the area requested to be drawn, painter->clip.
@@ -152,63 +172,32 @@ void ui_update(void) {
 /////////////////////////////////////////
 // Test usage code.
 /////////////////////////////////////////
+Element *parentElement, *childElement;
 
-Element *elementA, *elementB, *elementC, *elementD;
-
-int ElementAMessage(Element *element, Message message, int di, void *dp) {
-	(void) di;
-
-	Rect bounds = element->bounds;
-
+int ParentElementMessage(Element *element, Message message, int di, void *dp) {
 	if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, bounds, 0xFF77FF);
+		draw_block((Painter *) dp, element->bounds, 0xFFCCFF);
 	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout A with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
-		element_move(elementB, rect_make(bounds.l + 20, bounds.r - 20, bounds.t + 20, bounds.b - 20), false);
+		fprintf(stderr, "layout parent with bounds (%d->%d;%d->%d)\n", element->bounds.l, element->bounds.r, element->bounds.t, element->bounds.b);
+		element_move(childElement, rect_make(50, 100, 50, 100), false);
+	} else if (message == MSG_MOUSE_MOVE) {
+		fprintf(stderr, "mouse move over parent at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
+	} else if (message == MSG_UPDATE) {
+		fprintf(stderr, "update parent %d\n", di);
 	}
 
 	return 0;
 }
 
-int ElementBMessage(Element *element, Message message, int di, void *dp) {
-	(void) di;
-
-	Rect bounds = element->bounds;
-
+int ChildElementMessage(Element *element, Message message, int di, void *dp) {
 	if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, bounds, 0xDDDDE0);
+		draw_block((Painter *) dp, element->bounds, 0x444444);
 	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout B with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
-		element_move(elementC, rect_make(bounds.l - 40, bounds.l + 40, bounds.t + 40, bounds.b - 40), false);
-		element_move(elementD, rect_make(bounds.r - 40, bounds.r + 40, bounds.t + 40, bounds.b - 40), false);
-	}
-
-	return 0;
-}
-
-int ElementCMessage(Element *element, Message message, int di, void *dp) {
-	(void) di;
-
-	Rect bounds = element->bounds;
-
-	if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, bounds, 0x3377FF);
-	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout C with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
-	}
-
-	return 0;
-}
-
-int ElementDMessage(Element *element, Message message, int di, void *dp) {
-	(void) di;
-
-	Rect bounds = element->bounds;
-
-	if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, bounds, 0x33CC33);
-	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout D with bounds (%d->%d;%d->%d)\n", bounds.l, bounds.r, bounds.t, bounds.b);
+		fprintf(stderr, "layout child with bounds (%d->%d;%d->%d)\n", element->bounds.l, element->bounds.r, element->bounds.t, element->bounds.b);
+	} else if (message == MSG_MOUSE_MOVE) {
+		fprintf(stderr, "mouse move over child at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
+	} else if (message == MSG_UPDATE) {
+		fprintf(stderr, "update child %d\n", di);
 	}
 
 	return 0;
@@ -216,10 +205,8 @@ int ElementDMessage(Element *element, Message message, int di, void *dp) {
 
 int main() {
 	platform_init();
-	Window *window = platform_create_window("Hello, world", 300, 200);
-	elementA = element_create(sizeof(Element), &window->element, 0, ElementAMessage);
-	elementB = element_create(sizeof(Element), elementA, 0, ElementBMessage);
-	elementC = element_create(sizeof(Element), elementB, 0, ElementCMessage);
-	elementD = element_create(sizeof(Element), elementB, 0, ElementDMessage);
+	Window *window = platform_create_window("Hello, world", 640, 480);
+	parentElement = element_create(sizeof(Element), &window->element, 0, ParentElementMessage);
+	childElement = element_create(sizeof(Element), parentElement, 0, ChildElementMessage);
 	return platform_message_loop();
 }
