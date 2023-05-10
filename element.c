@@ -1,4 +1,4 @@
-Element *element_create(size_t bytes, Element *parent, uint32_t flags, MessageHandler message_class) {
+Element *element_create(int bytes, Element *parent, uint32_t flags, MessageHandler message_class) {
 	assert(bytes >= sizeof(Element));
 	Element *element = calloc(1, bytes);
 	element->flags = flags;
@@ -37,6 +37,10 @@ void element_move(Element *element, Rect bounds, bool always_layout) {
 		element->bounds = bounds;
 		element_message(element, MSG_LAYOUT, 0, 0);
 	}
+
+	// NOTE(shaw): Currently user is required to make sure repaint is done on layout changes
+	// should this always be called for them here?
+	// element_repaint(element, NULL);
 }
 
 void element_repaint(Element *element, Rect *region) {
@@ -60,6 +64,65 @@ Element *element_find_by_point(Element *element, int x, int y) {
 		}
 	}
 	return element;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Buttons
+//////////////////////////////////////////////////////////////////////////////
+#define COLOR_BUTTON_LIGHT  0xFFFFFF
+#define COLOR_BUTTON_MEDIUM 0x777777
+#define COLOR_BUTTON_DARK   0x000000
+int button_message(Element *element, Message message, int data_int, void *data_ptr) {
+	Button *button = (Button*)element;
+	if (message == MSG_PAINT) {
+		Painter *painter = (Painter*)data_ptr;
+		uint32_t bg_color = COLOR_BUTTON_LIGHT;
+		uint32_t text_color = COLOR_BUTTON_DARK;
+		if (element->window->hovered == element) {
+			bg_color = COLOR_BUTTON_MEDIUM;
+			if (element->window->pressed == element) {
+				bg_color = COLOR_BUTTON_DARK;
+				text_color = COLOR_BUTTON_LIGHT;
+			}
+		}
+		draw_rect(painter, element->bounds, bg_color, text_color);
+		draw_string(painter, element->bounds, button->text, button->text_bytes, text_color, true); 
+
+	} else if (message == MSG_UPDATE) {
+		element_repaint(element, NULL);
+	}
+	return 0;
+}
+
+// text_bytes of -1 indicates a NULL terminated string
+Button *button_create(Element *parent, uint32_t flags, char *text, int text_bytes) {
+	Button *button = (Button*)element_create(sizeof(Button), parent, flags, button_message);
+	string_copy(&button->text, &button->text_bytes, text, text_bytes);
+	return button;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Labels
+//////////////////////////////////////////////////////////////////////////////
+#define LABEL_CENTER (1 << 0)
+int label_message(Element *element, Message message, int data_int, void *data_ptr) {
+	Label *label = (Label*)element;
+	if (message == MSG_PAINT) {
+		Painter *painter = (Painter*)data_ptr;
+		draw_string(painter, element->bounds, label->text, label->text_bytes, 0x000000, 
+			element->flags & LABEL_CENTER); 
+	}
+	return 0;
+}
+
+Label *label_create(Element *parent, uint32_t flags, char *text, int text_bytes) {
+	Label *label = (Label*)element_create(sizeof(Label), parent, flags, label_message);
+	string_copy(&label->text, &label->text_bytes, text, text_bytes);
+	return label;
+}
+
+void label_set_text(Label *label, char *text, int text_bytes) {
+	string_copy(&label->text, &label->text_bytes, text, text_bytes);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -129,7 +192,7 @@ void draw_rect(Painter *painter, Rect r, uint32_t fill_color, uint32_t border_co
 	draw_block(painter, (Rect){r.l+1, r.r-1, r.t+1, r.b-1}, fill_color);
 }
 
-void draw_string(Painter *painter, Rect bounds, char *string, size_t bytes, uint32_t color, bool align_center) {
+void draw_string(Painter *painter, Rect bounds, char *string, int bytes, uint32_t color, bool align_center) {
 	// setup the clipping region
 	Rect old_clip = painter->clip;
 	painter->clip = rect_intersection(old_clip, bounds);

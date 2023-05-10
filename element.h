@@ -38,16 +38,31 @@ struct Element {
 };
 
 typedef struct {
+	Element element;
+	char *text;
+	int text_bytes;
+} Button; 
+
+typedef struct {
+	Element element;
+	char *text;
+	int text_bytes;
+} Label; 
+
+typedef struct {
 	Rect clip;         // The rectangle the element should draw into.
 	uint32_t *bits;    // The bitmap itself. bits[y * painter->width + x] gives the RGB value of pixel (x, y).
 	int width, height; // The width and height of the bitmap.
 } Painter;
 
-Element *element_create(size_t bytes, Element *parent, uint32_t flags, MessageHandler message_class);
+Element *element_create(int bytes, Element *parent, uint32_t flags, MessageHandler message_class);
 int element_message(Element *element, Message message, int data_int, void *data_ptr);
 void element_move(Element *element, Rect bounds, bool always_layout);
 void element_repaint(Element *element, Rect *region);
 Element *element_find_by_point(Element *element, int x, int y);
+
+Button *button_create(Element *parent, uint32_t flags, char *text, int text_bytes);
+
 void draw_block(Painter *painter, Rect rect, uint32_t color);
 void draw_rect(Painter *painter, Rect r, uint32_t fill_color, uint32_t border_color);
-void draw_string(Painter *painter, Rect bounds, char *string, size_t bytes, uint32_t color, bool align_center);
+void draw_string(Painter *painter, Rect bounds, char *string, int bytes, uint32_t color, bool align_center);

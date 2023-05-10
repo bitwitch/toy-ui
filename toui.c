@@ -69,17 +69,17 @@ GlobalState global_state;
 #define MIN(a, b) ((a) <= (b) ? (a) : (b))
 #define MAX(a, b) ((a) >= (b) ? (a) : (b))
 
-#include "platform.c"
-#include "rect.c"
-#include "element.c"
-
-
-void string_copy(char **dest, size_t *dest_bytes, const char *source, ptrdiff_t source_bytes) {
-	if (source_bytes == -1) source_bytes = strlen(source);
+void string_copy(char **dest, int *dest_bytes, const char *source, int source_bytes) {
+	if (source_bytes == -1) source_bytes = (int)strlen(source);
 	*dest = realloc(*dest, source_bytes);
 	*dest_bytes = source_bytes;
 	memcpy(*dest, source, source_bytes);
 }
+
+#include "platform.c"
+#include "rect.c"
+#include "element.c"
+
 
 void print_rect(const char *prefix, Rect x) {
 	fprintf(stderr, "%s: %d->%d; %d->%d\n", prefix, x.l, x.r, x.t, x.b);
@@ -97,7 +97,7 @@ void test_helpers(void) {
 	fprintf(stderr, "contains: %d\n", rect_contains(rect_make(10, 20, 30, 40), 25, 35));
 
 	char *dest = NULL;
-	size_t dest_bytes = 0;
+	int dest_bytes = 0;
 	string_copy(&dest, &dest_bytes, "Hello!", 6);
 	fprintf(stderr, "'%.*s'\n", (int) dest_bytes, dest);
 	string_copy(&dest, &dest_bytes, "World!", 6);
@@ -248,53 +248,57 @@ void ui_update(void) {
 /////////////////////////////////////////
 // Test usage code.
 /////////////////////////////////////////
-Element *parentElement, *childElement;
 
-int ParentElementMessage(Element *element, Message message, int di, void *dp) {
-	if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, element->bounds, 0xFFCCFF);
-	} else if (message == MSG_LAYOUT) {
-		fprintf(stderr, "layout with bounds (%d->%d;%d->%d)\n", element->bounds.l, element->bounds.r, element->bounds.t, element->bounds.b);
-		element_move(childElement, rect_make(50, 100, 50, 100), false);
+Button *myButton;
+Label *myLabel;
+int counter = 0;
+
+void UpdateLabel() {
+	// Set the label's contents.
+	char buffer[50];
+	snprintf(buffer, sizeof(buffer), "Click count: %d", counter);
+	label_set_text(myLabel, buffer, -1);
+
+	// Recall our discussion above. We could easily change our API to make this call unneeded, 
+	// having moved the responsible of calling it into LabelSetContent.
+	// But I think it's better for the tutorial to be more explicit about what's happening.
+	element_repaint(&myLabel->element, NULL);
+}
+
+int MyButtonMessage(Element *element, Message message, int di, void *dp) {
+	if (message == MSG_CLICKED) {
+		counter++;     // Increment the counter.
+		UpdateLabel(); // Update the label's contents.
 	}
-
+	
 	return 0;
 }
 
-int ChildElementMessage(Element *element, Message message, int di, void *dp) {
+int LayoutElementMessage(Element *element, Message message, int di, void *dp) {
 	(void) di;
 
-	if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, element->bounds, 0x444444);
-	} else if (message == MSG_MOUSE_MOVE) {
-		fprintf(stderr, "mouse move at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
-	} else if (message == MSG_MOUSE_DRAG) {
-		fprintf(stderr, "mouse drag at (%d,%d)\n", element->window->mouse_x, element->window->mouse_y);
-	} else if (message == MSG_UPDATE) {
-		fprintf(stderr, "update %d\n", di);
-	} else if (message == MSG_MOUSE_LEFT_DOWN) {
-		fprintf(stderr, "left down\n");
-	} else if (message == MSG_MOUSE_RIGHT_DOWN) {
-		fprintf(stderr, "right down\n");
-	} else if (message == MSG_MOUSE_MIDDLE_DOWN) {
-		fprintf(stderr, "middle down\n");
-	} else if (message == MSG_MOUSE_LEFT_UP) {
-		fprintf(stderr, "left up\n");
-	} else if (message == MSG_MOUSE_RIGHT_UP) {
-		fprintf(stderr, "right up\n");
-	} else if (message == MSG_MOUSE_MIDDLE_UP) {
-		fprintf(stderr, "middle up\n");
-	} else if (message == MSG_CLICKED) {
-		fprintf(stderr, "clicked\n");
+	if (message == MSG_LAYOUT) {
+		element_move(&myButton->element, rect_make(10, 200, 10, 40), false);
+		element_move(&myLabel->element, rect_make(10, element->bounds.r - 10, 50, 90), false);
+	} else if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, element->bounds, 0xFFCCFF);
 	}
 
 	return 0;
 }
-
 int main() {
 	platform_init();
 	Window *window = platform_create_window("Hello, world", 640, 480);
-	parentElement = element_create(sizeof(Element), &window->element, 0, ParentElementMessage);
-	childElement = element_create(sizeof(Element), parentElement, 0, ChildElementMessage);
+	// Add a custom element to the window to manage laying out the interface.
+	Element *layoutElement = element_create(sizeof(Element), &window->element, 0, LayoutElementMessage);
+
+	// Add a button and label to the layout element.
+	myButton = button_create(layoutElement, 0, "Increment counter", -1);
+	myButton->element.message_user = MyButtonMessage;
+	myLabel = label_create(layoutElement, LABEL_CENTER, NULL, 0);
+
+	// Update the label to match the current value of the counter.
+	UpdateLabel();
+
 	return platform_message_loop();
 }
