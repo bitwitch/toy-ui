@@ -1189,37 +1189,3 @@ void platform_init(void) {
 }
 
 #endif
-
-/////////////////////////////////////////
-// Test usage code.
-/////////////////////////////////////////
-
-int my_button_message(Element *element, Message message, int di, void *dp) {
-	if (message == MSG_CLICKED) {
-		element_destroy(element);
-		element_message(element->parent, MSG_LAYOUT, 0, 0);
-	}
-	return 0;
-}
-
-int main() {
-	platform_init();
-	Window *window = platform_create_window("DESTROY!", 800, 600);
-
-	Panel *column1 = panel_create(&window->element, PANEL_GREY);
-	column1->gap = 10;
-	column1->padding = rect_make(15, 15, 15, 15);
-
-	label_create(&column1->element, 0, "Pick a button!", -1);
-
-	for (int i=0; i<12; ++i) {
-		char buf[32];
-		snprintf(buf, 32, "Push %d", i+1);
-		Button *button = button_create(&column1->element, ELEMENT_HORIZONTAL_FILL, buf, -1);
-		button->element.message_user = my_button_message;
-	}
-
-	return platform_message_loop();
-}
-
-
