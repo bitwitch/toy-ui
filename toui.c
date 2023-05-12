@@ -248,57 +248,119 @@ void ui_update(void) {
 /////////////////////////////////////////
 // Test usage code.
 /////////////////////////////////////////
-
-Button *myButton;
-Label *myLabel;
-int counter = 0;
-
-void UpdateLabel() {
-	// Set the label's contents.
-	char buffer[50];
-	snprintf(buffer, sizeof(buffer), "Click count: %d", counter);
-	label_set_text(myLabel, buffer, -1);
-
-	// Recall our discussion above. We could easily change our API to make this call unneeded, 
-	// having moved the responsible of calling it into LabelSetContent.
-	// But I think it's better for the tutorial to be more explicit about what's happening.
-	element_repaint(&myLabel->element, NULL);
-}
-
-int MyButtonMessage(Element *element, Message message, int di, void *dp) {
-	if (message == MSG_CLICKED) {
-		counter++;     // Increment the counter.
-		UpdateLabel(); // Update the label's contents.
-	}
-	
-	return 0;
-}
-
-int LayoutElementMessage(Element *element, Message message, int di, void *dp) {
+int FixedReportedSizeElement(Element *element, Message message, int di, void *dp) {
 	(void) di;
 
-	if (message == MSG_LAYOUT) {
-		element_move(&myButton->element, rect_make(10, 200, 10, 40), false);
-		element_move(&myLabel->element, rect_make(10, element->bounds.r - 10, 50, 90), false);
+	if (message == MSG_GET_WIDTH) {
+		return 25;
+	} else if (message == MSG_GET_HEIGHT) {
+		return 50;
 	} else if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, element->bounds, 0xFFCCFF);
+		draw_block((Painter *) dp, element->bounds, (uint32_t) (uintptr_t) element->cp);
 	}
 
 	return 0;
 }
+
+int AspectRatioElement(Element *element, Message message, int di, void *dp) {
+	if (message == MSG_GET_WIDTH) {
+		return di * 2;
+	} else if (message == MSG_GET_HEIGHT) {
+		return di / 2;
+	} else if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, element->bounds, (uint32_t) (uintptr_t) element->cp);
+	}
+
+	return 0;
+}
+
+int FixedAreaElement(Element *element, Message message, int di, void *dp) {
+	if (message == MSG_GET_WIDTH) {
+		return di ? 50000 / di : 0;
+	} else if (message == MSG_GET_HEIGHT) {
+		return di ? 50000 / di : 0;
+	} else if (message == MSG_PAINT) {
+		draw_block((Painter *) dp, element->bounds, (uint32_t) (uintptr_t) element->cp);
+	}
+
+	return 0;
+}
+
 int main() {
 	platform_init();
-	Window *window = platform_create_window("Hello, world", 640, 480);
-	// Add a custom element to the window to manage laying out the interface.
-	Element *layoutElement = element_create(sizeof(Element), &window->element, 0, LayoutElementMessage);
+	Window *window1 = platform_create_window("Window 1", 1000, 800);
 
-	// Add a button and label to the layout element.
-	myButton = button_create(layoutElement, 0, "Increment counter", -1);
-	myButton->element.message_user = MyButtonMessage;
-	myLabel = label_create(layoutElement, LABEL_CENTER, NULL, 0);
+	Panel *column1 = panel_create(&window1->element, PANEL_GREY);
+	column1->gap = 10;
+	column1->padding = rect_make(10, 10, 10, 10);
 
-	// Update the label to match the current value of the counter.
-	UpdateLabel();
+	label_create(&column1->element, 0, "Label 1", -1);
+	label_create(&column1->element, 0, "Longer label 2", -1);
+
+	Panel *column2 = panel_create(&column1->element, PANEL_WHITE);
+	column2->gap = 10;
+	column2->padding = rect_make(10, 10, 10, 10);
+
+	label_create(&column2->element, ELEMENT_HORIZONTAL_FILL, "Label 3", -1);
+	label_create(&column2->element, ELEMENT_HORIZONTAL_FILL, "Much Longer label 4", -1);
+
+	Panel *column3 = panel_create(&column1->element, PANEL_WHITE | ELEMENT_HORIZONTAL_FILL);
+	column3->gap = 10;
+	column3->padding = rect_make(10, 10, 10, 10);
+
+	label_create(&column3->element, 0, "Label 5", -1);
+	label_create(&column3->element, 0, "Longer label 6", -1);
+
+	Panel *column4 = panel_create(&column1->element, PANEL_WHITE | ELEMENT_HORIZONTAL_FILL);
+	column4->gap = 10;
+	column4->padding = rect_make(10, 10, 10, 10);
+
+	label_create(&column4->element, ELEMENT_HORIZONTAL_FILL, "Label 7", -1);
+	label_create(&column4->element, ELEMENT_HORIZONTAL_FILL, "Longer label 8", -1);
+
+	button_create(&column1->element, ELEMENT_VERTICAL_FILL, "Vertical fill button 1", -1);
+	button_create(&column1->element, ELEMENT_VERTICAL_FILL, "Vertical fill button 2", -1);
+	button_create(&column1->element, ELEMENT_VERTICAL_FILL | ELEMENT_HORIZONTAL_FILL, "Vertical and horizontal fill button 3", -1);
+	button_create(&column1->element, ELEMENT_VERTICAL_FILL, "Vertical fill button 4", -1);
+
+	Panel *row1 = panel_create(&column1->element, PANEL_WHITE | PANEL_HORIZONTAL);
+	row1->gap = 10;
+	row1->padding = rect_make(10, 10, 10, 10);
+
+	button_create(&row1->element, 0, "Button 1 in row", -1);
+	button_create(&row1->element, ELEMENT_HORIZONTAL_FILL, "Button 2 in row", -1);
+	button_create(&row1->element, 0, "Button 3 in row", -1);
+
+	Panel *row2 = panel_create(&column1->element, PANEL_WHITE | PANEL_HORIZONTAL | ELEMENT_HORIZONTAL_FILL);
+	row2->gap = 10;
+	row2->padding = rect_make(10, 10, 10, 10);
+
+	button_create(&row2->element, 0, "Button 4 in row", -1);
+	button_create(&row2->element, ELEMENT_HORIZONTAL_FILL, "Button 5 in row", -1);
+	button_create(&row2->element, 0, "Button 6 in row", -1);
+
+	Window *window2 = platform_create_window("Window 2", 500, 500);
+
+	Panel *column5 = panel_create(&window2->element, PANEL_GREY);
+	column5->gap = 10;
+	column5->padding = rect_make(10, 10, 10, 10);
+
+	element_create(sizeof(Element), &column5->element, 0, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0x111111;
+	element_create(sizeof(Element), &column5->element, ELEMENT_HORIZONTAL_FILL, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0xFF1111;
+	element_create(sizeof(Element), &column5->element, ELEMENT_VERTICAL_FILL, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0x11FF11;
+	element_create(sizeof(Element), &column5->element, ELEMENT_HORIZONTAL_FILL | ELEMENT_VERTICAL_FILL, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0x1111FF;
+
+	Window *window3 = platform_create_window("Window 3", 500, 500);
+	Panel *column6 = panel_create(&window3->element, PANEL_GREY);
+	column6->gap = 10;
+	column6->padding = rect_make(10, 10, 10, 10);
+
+	element_create(sizeof(Element), &column6->element, ELEMENT_HORIZONTAL_FILL, AspectRatioElement)->cp = (void *) (uintptr_t) 0x111111;
+	element_create(sizeof(Element), &column6->element, ELEMENT_VERTICAL_FILL, AspectRatioElement)->cp = (void *) (uintptr_t) 0xFF1111;
+	element_create(sizeof(Element), &column6->element, ELEMENT_HORIZONTAL_FILL, FixedAreaElement)->cp = (void *) (uintptr_t) 0x11FF11;
+	element_create(sizeof(Element), &column6->element, ELEMENT_VERTICAL_FILL, FixedAreaElement)->cp = (void *) (uintptr_t) 0x1111FF;
 
 	return platform_message_loop();
 }
+
+

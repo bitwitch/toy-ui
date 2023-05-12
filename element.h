@@ -1,8 +1,15 @@
+#define GLYPH_WIDTH  (9)
+#define GLYPH_HEIGHT (16)
+#define ELEMENT_VERTICAL_FILL   (1 << 16)
+#define ELEMENT_HORIZONTAL_FILL (1 << 17)
+
 typedef struct Element Element;
 
 typedef enum {
 	MSG_NONE,
 	MSG_LAYOUT,
+	MSG_GET_WIDTH,         // data_int should be set to the expected height of the element, otherwise 0.
+	MSG_GET_HEIGHT,        // data_int should be set to the expected width of the element, otherwise 0.
 	MSG_PAINT,
 	MSG_MOUSE_MOVE,
 	MSG_UPDATE,
@@ -48,6 +55,12 @@ typedef struct {
 	char *text;
 	int text_bytes;
 } Label; 
+
+typedef struct {
+	Element element;
+	Rect padding;
+	int gap; // space between each child element
+} Panel; 
 
 typedef struct {
 	Rect clip;         // The rectangle the element should draw into.

@@ -90,7 +90,14 @@ int button_message(Element *element, Message message, int data_int, void *data_p
 
 	} else if (message == MSG_UPDATE) {
 		element_repaint(element, NULL);
+
+	} else if (message == MSG_GET_WIDTH) {
+		return 30 + GLYPH_WIDTH * button->text_bytes;
+
+	} else if (message == MSG_GET_HEIGHT) {
+		return 25;
 	}
+
 	return 0;
 }
 
@@ -111,7 +118,14 @@ int label_message(Element *element, Message message, int data_int, void *data_pt
 		Painter *painter = (Painter*)data_ptr;
 		draw_string(painter, element->bounds, label->text, label->text_bytes, 0x000000, 
 			element->flags & LABEL_CENTER); 
+
+	} else if (message == MSG_GET_WIDTH) {
+		return GLYPH_WIDTH * label->text_bytes;
+
+	} else if (message == MSG_GET_HEIGHT) {
+		return GLYPH_HEIGHT;
 	}
+
 	return 0;
 }
 
@@ -126,10 +140,172 @@ void label_set_text(Label *label, char *text, int text_bytes) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// Layout Panels
+//////////////////////////////////////////////////////////////////////////////
+#define PANEL_HORIZONTAL (1 << 0)
+#define PANEL_WHITE      (1 << 1)
+#define PANEL_GREY       (1 << 2)
+
+int panel_layout(Panel *panel, Rect bounds, bool measure) {
+	bool horizontal = panel->element.flags & PANEL_HORIZONTAL;
+	int position = horizontal ? panel->padding.l : panel->padding.t;
+	int padding_other_axis = horizontal ? panel->padding.t : panel->padding.l;
+	int panel_width  = bounds.r - bounds.l - panel->padding.l - panel->padding.r;
+	int panel_height = bounds.b - bounds.t - panel->padding.t - panel->padding.b;
+
+	int count = 0;
+	int num_fill = 0;
+	int per_fill = 0; 
+	int available = horizontal ? panel_width : panel_height;
+
+	// if element is FILL on secondary axis, set its width to panel width
+	// if element is FILL on primary axis, first get combined size of all
+	// static elements, then divide remaining space evenly among fill elements
+
+	for (uintptr_t i = 0; i < panel->element.child_count; ++i) {
+		++count;
+		Element *child = panel->element.children[i];
+		bool fill_vertical   = child->flags & ELEMENT_VERTICAL_FILL;
+		bool fill_horizontal = child->flags & ELEMENT_HORIZONTAL_FILL;
+
+		if (horizontal) {
+			if (fill_horizontal) {
+				++num_fill;
+			} else if (available > 0) {
+				available -= element_message(child, MSG_GET_WIDTH, panel_height, 0);
+			}
+		} else {
+			if (fill_vertical) {
+				++num_fill;
+			} else if (available > 0) {
+				available -= element_message(child, MSG_GET_HEIGHT, panel_width, 0);
+			}
+		}
+	}
+
+	if (count) 
+		available -= (count - 1) * panel->gap;
+
+	if (available > 0 && num_fill)
+		per_fill = available / num_fill;
+
+
+	for (uintptr_t i = 0; i < panel->element.child_count; ++i) {
+		Element *child = panel->element.children[i];
+		bool fill_vertical   = child->flags & ELEMENT_VERTICAL_FILL;
+		bool fill_horizontal = child->flags & ELEMENT_HORIZONTAL_FILL;
+		int child_width  = 0;
+		int child_height = 0;
+
+		if (horizontal) {
+			if (fill_vertical) {
+				child_height = panel_height;
+			} else {
+				int expected_width = fill_horizontal ? per_fill : 0;
+				child_height = element_message(child, MSG_GET_HEIGHT, expected_width, 0);
+			}
+
+			child_width = fill_horizontal ? per_fill : element_message(child, MSG_GET_WIDTH, child_height, 0);
+
+			Rect new_pos = {
+				.l = bounds.l + position,
+				.r = bounds.l + position + child_width,
+				.t = bounds.t + padding_other_axis + (panel_height - child_height)/2,
+				.b = bounds.t + padding_other_axis + (panel_height + child_height)/2,
+			};
+			if (!measure) element_move(child, new_pos, false);
+			position += child_width + panel->gap;
+
+		} else { 
+			// vertical layout
+			if (fill_horizontal) {
+				child_width = panel_width;
+			} else {
+				int expected_height = fill_vertical ? per_fill : 0;
+				child_width = element_message(child, MSG_GET_WIDTH, expected_height, 0);
+			}
+
+			child_height = fill_vertical ? per_fill : element_message(child, MSG_GET_HEIGHT, child_width, 0);
+
+			Rect new_pos = {
+				.l = bounds.l + padding_other_axis + (panel_width - child_width)/2, 
+				.r = bounds.l + padding_other_axis + (panel_width + child_width)/2, 
+				.t = bounds.t + position,
+				.b = bounds.t + position + child_height,
+			};
+			if (!measure) element_move(child, new_pos, false);
+			position += child_height + panel->gap;
+		}
+	}
+
+	// If there was at least 1 element, we added a gap to the end of position that isn't used, so remove it.
+	if (count) 
+		position -= panel->gap;
+
+	// Add the space from the border at the other end of the panel on the main axis.
+	position += horizontal ? panel->padding.r : panel->padding.b;
+
+	return position;
+}
+
+// return the largest child width or height depending on if the panel is vertical or horizontal
+int panel_measure(Panel *panel) {
+	int dimension = 0;
+	bool horizontal = panel->element.flags & PANEL_HORIZONTAL;
+	for (uintptr_t i = 0; i < panel->element.child_count; ++i) {
+		Element *child = panel->element.children[i];
+		Message message = horizontal ? MSG_GET_HEIGHT : MSG_GET_WIDTH;
+		int child_dimension = element_message(child, message, 0, 0);
+		if (child_dimension > dimension) dimension = child_dimension;
+	}
+
+	int padding = horizontal 
+		? panel->padding.t + panel->padding.b 
+		: panel->padding.l + panel->padding.r;
+
+	return dimension + padding;
+}
+
+int panel_message(Element *element, Message message, int data_int, void *data_ptr) {
+	Panel *panel = (Panel*) element;
+	bool horizontal = element->flags & PANEL_HORIZONTAL;
+
+	if (message == MSG_PAINT) {
+		Painter *painter = (Painter*) data_ptr;
+		if (element->flags & PANEL_WHITE) {
+			draw_block(painter, element->bounds, 0xFFFFFF);
+		} else if (element->flags & PANEL_GREY) {
+			draw_block(painter, element->bounds, 0xCCCCCC);
+		} else {
+			// transparent background
+		}
+
+	} else if (message == MSG_LAYOUT) {
+		panel_layout(panel, element->bounds, false);
+		element_repaint(element, NULL);
+
+	} else if (message == MSG_GET_WIDTH) {
+		return horizontal 
+			? panel_layout(panel, rect_make(0, 0, 0, data_int), true)
+			: panel_measure(panel);
+
+	} else if (message == MSG_GET_HEIGHT) {
+		return horizontal
+			? panel_measure(panel)
+			: panel_layout(panel, rect_make(0, data_int, 0, 0), true);
+	}
+
+	return 0;
+}
+
+Panel *panel_create(Element *parent, uint32_t flags) {
+	return (Panel*) element_create(sizeof(Panel), parent, flags, panel_message);
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
 // Drawing helpers
 //////////////////////////////////////////////////////////////////////////////
-#define GLYPH_WIDTH  (9)
-#define GLYPH_HEIGHT (16)
 
 // Taken from https://commons.wikimedia.org/wiki/File:Codepage-437.png
 // Public domain.
