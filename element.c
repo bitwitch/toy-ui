@@ -15,6 +15,9 @@ Element *element_create(int bytes, Element *parent, uint32_t flags, MessageHandl
 }
 
 int element_message(Element *element, Message message, int data_int, void *data_ptr) {
+	if (message != MSG_DESTROY && (element->flags & ELEMENT_DESTROY))
+		return 0;
+
 	int result = 0;
 	if (element->message_user) {
 		result = element->message_user(element, message, data_int, data_ptr);
@@ -66,6 +69,30 @@ Element *element_find_by_point(Element *element, int x, int y) {
 	return element;
 }
 
+void element_destroy(Element *element) {
+	// If the element is already marked for destruction, there's nothing to do.
+	if (element->flags & ELEMENT_DESTROY) {
+		return;
+	}
+
+	// Set the flag indicating the element needs to be destroyed in the next ui_update(),
+	// that is, once the input event is finished processing.
+	element->flags |= ELEMENT_DESTROY;
+
+	// Mark the ancestors of this element with a flag so the we can find 
+	// this element in ui_uipdate() when traversing the hierarchy.
+	Element *ancestor = element->parent;
+	while (ancestor) {
+		ancestor->flags |= ELEMENT_DESTROY_DESCENDENT;
+		ancestor = ancestor->parent;
+	}
+
+	// Recurse to destroy all the descendents.
+	for (uintptr_t i = 0; i < element->child_count; ++i) {
+		element_destroy(element->children[i]);
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // Buttons
 //////////////////////////////////////////////////////////////////////////////
@@ -96,6 +123,9 @@ int button_message(Element *element, Message message, int data_int, void *data_p
 
 	} else if (message == MSG_GET_HEIGHT) {
 		return 25;
+		
+	} else if (message == MSG_DESTROY) {
+		free(button->text);
 	}
 
 	return 0;
@@ -124,11 +154,15 @@ int label_message(Element *element, Message message, int data_int, void *data_pt
 
 	} else if (message == MSG_GET_HEIGHT) {
 		return GLYPH_HEIGHT;
+
+	} else if (message == MSG_DESTROY) {
+		free(label->text);
 	}
 
 	return 0;
 }
 
+// text_bytes of -1 indicates a NULL terminated string
 Label *label_create(Element *parent, uint32_t flags, char *text, int text_bytes) {
 	Label *label = (Label*)element_create(sizeof(Label), parent, flags, label_message);
 	string_copy(&label->text, &label->text_bytes, text, text_bytes);
@@ -163,8 +197,11 @@ int panel_layout(Panel *panel, Rect bounds, bool measure) {
 	// static elements, then divide remaining space evenly among fill elements
 
 	for (uintptr_t i = 0; i < panel->element.child_count; ++i) {
-		++count;
 		Element *child = panel->element.children[i];
+
+		if (child->flags & ELEMENT_DESTROY) continue;
+
+		++count;
 		bool fill_vertical   = child->flags & ELEMENT_VERTICAL_FILL;
 		bool fill_horizontal = child->flags & ELEMENT_HORIZONTAL_FILL;
 
@@ -192,6 +229,8 @@ int panel_layout(Panel *panel, Rect bounds, bool measure) {
 
 	for (uintptr_t i = 0; i < panel->element.child_count; ++i) {
 		Element *child = panel->element.children[i];
+		if (child->flags & ELEMENT_DESTROY) continue;
+
 		bool fill_vertical   = child->flags & ELEMENT_VERTICAL_FILL;
 		bool fill_horizontal = child->flags & ELEMENT_HORIZONTAL_FILL;
 		int child_width  = 0;
@@ -254,6 +293,7 @@ int panel_measure(Panel *panel) {
 	bool horizontal = panel->element.flags & PANEL_HORIZONTAL;
 	for (uintptr_t i = 0; i < panel->element.child_count; ++i) {
 		Element *child = panel->element.children[i];
+		if (child->flags & ELEMENT_DESTROY) continue;
 		Message message = horizontal ? MSG_GET_HEIGHT : MSG_GET_WIDTH;
 		int child_dimension = element_message(child, message, 0, 0);
 		if (child_dimension > dimension) dimension = child_dimension;

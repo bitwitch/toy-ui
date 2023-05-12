@@ -211,18 +211,71 @@ void ui_element_paint(Element *element, Painter *painter) {
 	element_message(element, MSG_PAINT, 0, painter);
 
 	// Recurse into each child, restoring the clip each time.
-	for (uintptr_t i = 0; i < element->child_count; i++) {
+	for (uintptr_t i = 0; i < element->child_count; ++i) {
 		painter->clip = clip;
 		ui_element_paint(element->children[i], painter);
 	}
 }
 
+bool ui_element_destroy(Element *element) {
+	// Is there some descendent of this element that needs to be destroyed?
+	if (element->flags & ELEMENT_DESTROY_DESCENDENT) {
+		// Clear the flag, ready for the next update cycle.
+		element->flags &= ~ELEMENT_DESTROY_DESCENDENT;
+
+		// For each child,
+		for (uintptr_t i = 0; i < element->child_count; ++i) { // Exercise to the reader: how can this specific line of code be optimized?
+			// Recurse. Was this specific element destroyed?
+			if (ui_element_destroy(element->children[i])) {
+				// Yes, so remove it from our list of children.
+				memmove(&element->children[i], &element->children[i + 1], sizeof(Element *) * (element->child_count - i - 1));
+				element->child_count--;
+				i--;
+			}
+		}
+	}
+
+	// Does this element need to be destroyed?
+	if (element->flags & ELEMENT_DESTROY) {
+		// Sent it the MSG_DESTROY message.
+		element_message(element, MSG_DESTROY, 0, 0);
+
+		// If this element is being pressed, clear the pressed field in the Window.
+		if (element->window->pressed == element) {
+			ui_window_set_pressed(element->window, NULL, 0);
+		}
+
+		// If this element is being hovered, reset the hovered field in the Window to the default.
+		if (element->window->hovered == element) {
+			element->window->hovered = &element->window->element;
+		}
+
+		// Free the element's children list, and the element structure itself.
+		free(element->children);
+		free(element);
+		return true;
+
+	} else {
+		// The element was not destroyed.
+		return false;
+	}
+}
+
 void ui_update(void) {
-	for (uintptr_t i = 0; i < global_state.window_count; i++) {
+	for (uintptr_t i = 0; i < global_state.window_count; ++i) {
 		Window *window = global_state.windows[i];
 
+		// destroy all elements marked for destruction
+		if (ui_element_destroy(&window->element)) {
+
+			// The whole window has been destroyed, so removed it from our list.
+			global_state.windows[i] = global_state.windows[global_state.window_count - 1];
+			--global_state.window_count;
+			--i;
+
+
 		// Is there anything marked for repaint?
-		if (rect_valid(window->update_region)) {
+		} else if (rect_valid(window->update_region)) {
 			// Setup the painter using the window's buffer.
 			Painter painter;
 			painter.bits = window->bits;
@@ -248,117 +301,31 @@ void ui_update(void) {
 /////////////////////////////////////////
 // Test usage code.
 /////////////////////////////////////////
-int FixedReportedSizeElement(Element *element, Message message, int di, void *dp) {
-	(void) di;
 
-	if (message == MSG_GET_WIDTH) {
-		return 25;
-	} else if (message == MSG_GET_HEIGHT) {
-		return 50;
-	} else if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, element->bounds, (uint32_t) (uintptr_t) element->cp);
+int my_button_message(Element *element, Message message, int di, void *dp) {
+	if (message == MSG_CLICKED) {
+		element_destroy(element);
+		element_message(element->parent, MSG_LAYOUT, 0, 0);
 	}
-
-	return 0;
-}
-
-int AspectRatioElement(Element *element, Message message, int di, void *dp) {
-	if (message == MSG_GET_WIDTH) {
-		return di * 2;
-	} else if (message == MSG_GET_HEIGHT) {
-		return di / 2;
-	} else if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, element->bounds, (uint32_t) (uintptr_t) element->cp);
-	}
-
-	return 0;
-}
-
-int FixedAreaElement(Element *element, Message message, int di, void *dp) {
-	if (message == MSG_GET_WIDTH) {
-		return di ? 50000 / di : 0;
-	} else if (message == MSG_GET_HEIGHT) {
-		return di ? 50000 / di : 0;
-	} else if (message == MSG_PAINT) {
-		draw_block((Painter *) dp, element->bounds, (uint32_t) (uintptr_t) element->cp);
-	}
-
 	return 0;
 }
 
 int main() {
 	platform_init();
-	Window *window1 = platform_create_window("Window 1", 1000, 800);
+	Window *window = platform_create_window("DESTROY!", 800, 600);
 
-	Panel *column1 = panel_create(&window1->element, PANEL_GREY);
+	Panel *column1 = panel_create(&window->element, PANEL_GREY);
 	column1->gap = 10;
-	column1->padding = rect_make(10, 10, 10, 10);
+	column1->padding = rect_make(15, 15, 15, 15);
 
-	label_create(&column1->element, 0, "Label 1", -1);
-	label_create(&column1->element, 0, "Longer label 2", -1);
+	label_create(&column1->element, 0, "Pick a button!", -1);
 
-	Panel *column2 = panel_create(&column1->element, PANEL_WHITE);
-	column2->gap = 10;
-	column2->padding = rect_make(10, 10, 10, 10);
-
-	label_create(&column2->element, ELEMENT_HORIZONTAL_FILL, "Label 3", -1);
-	label_create(&column2->element, ELEMENT_HORIZONTAL_FILL, "Much Longer label 4", -1);
-
-	Panel *column3 = panel_create(&column1->element, PANEL_WHITE | ELEMENT_HORIZONTAL_FILL);
-	column3->gap = 10;
-	column3->padding = rect_make(10, 10, 10, 10);
-
-	label_create(&column3->element, 0, "Label 5", -1);
-	label_create(&column3->element, 0, "Longer label 6", -1);
-
-	Panel *column4 = panel_create(&column1->element, PANEL_WHITE | ELEMENT_HORIZONTAL_FILL);
-	column4->gap = 10;
-	column4->padding = rect_make(10, 10, 10, 10);
-
-	label_create(&column4->element, ELEMENT_HORIZONTAL_FILL, "Label 7", -1);
-	label_create(&column4->element, ELEMENT_HORIZONTAL_FILL, "Longer label 8", -1);
-
-	button_create(&column1->element, ELEMENT_VERTICAL_FILL, "Vertical fill button 1", -1);
-	button_create(&column1->element, ELEMENT_VERTICAL_FILL, "Vertical fill button 2", -1);
-	button_create(&column1->element, ELEMENT_VERTICAL_FILL | ELEMENT_HORIZONTAL_FILL, "Vertical and horizontal fill button 3", -1);
-	button_create(&column1->element, ELEMENT_VERTICAL_FILL, "Vertical fill button 4", -1);
-
-	Panel *row1 = panel_create(&column1->element, PANEL_WHITE | PANEL_HORIZONTAL);
-	row1->gap = 10;
-	row1->padding = rect_make(10, 10, 10, 10);
-
-	button_create(&row1->element, 0, "Button 1 in row", -1);
-	button_create(&row1->element, ELEMENT_HORIZONTAL_FILL, "Button 2 in row", -1);
-	button_create(&row1->element, 0, "Button 3 in row", -1);
-
-	Panel *row2 = panel_create(&column1->element, PANEL_WHITE | PANEL_HORIZONTAL | ELEMENT_HORIZONTAL_FILL);
-	row2->gap = 10;
-	row2->padding = rect_make(10, 10, 10, 10);
-
-	button_create(&row2->element, 0, "Button 4 in row", -1);
-	button_create(&row2->element, ELEMENT_HORIZONTAL_FILL, "Button 5 in row", -1);
-	button_create(&row2->element, 0, "Button 6 in row", -1);
-
-	Window *window2 = platform_create_window("Window 2", 500, 500);
-
-	Panel *column5 = panel_create(&window2->element, PANEL_GREY);
-	column5->gap = 10;
-	column5->padding = rect_make(10, 10, 10, 10);
-
-	element_create(sizeof(Element), &column5->element, 0, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0x111111;
-	element_create(sizeof(Element), &column5->element, ELEMENT_HORIZONTAL_FILL, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0xFF1111;
-	element_create(sizeof(Element), &column5->element, ELEMENT_VERTICAL_FILL, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0x11FF11;
-	element_create(sizeof(Element), &column5->element, ELEMENT_HORIZONTAL_FILL | ELEMENT_VERTICAL_FILL, FixedReportedSizeElement)->cp = (void *) (uintptr_t) 0x1111FF;
-
-	Window *window3 = platform_create_window("Window 3", 500, 500);
-	Panel *column6 = panel_create(&window3->element, PANEL_GREY);
-	column6->gap = 10;
-	column6->padding = rect_make(10, 10, 10, 10);
-
-	element_create(sizeof(Element), &column6->element, ELEMENT_HORIZONTAL_FILL, AspectRatioElement)->cp = (void *) (uintptr_t) 0x111111;
-	element_create(sizeof(Element), &column6->element, ELEMENT_VERTICAL_FILL, AspectRatioElement)->cp = (void *) (uintptr_t) 0xFF1111;
-	element_create(sizeof(Element), &column6->element, ELEMENT_HORIZONTAL_FILL, FixedAreaElement)->cp = (void *) (uintptr_t) 0x11FF11;
-	element_create(sizeof(Element), &column6->element, ELEMENT_VERTICAL_FILL, FixedAreaElement)->cp = (void *) (uintptr_t) 0x1111FF;
+	for (int i=0; i<12; ++i) {
+		char buf[32];
+		snprintf(buf, 32, "Push %d", i+1);
+		Button *button = button_create(&column1->element, ELEMENT_HORIZONTAL_FILL, buf, -1);
+		button->element.message_user = my_button_message;
+	}
 
 	return platform_message_loop();
 }

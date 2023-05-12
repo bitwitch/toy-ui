@@ -2,18 +2,24 @@ void ui_update(void);
 void ui_window_input_event(Window *window, Message message, int data_int, void *data_ptr);
 void ui_window_set_pressed(Window *window, Element *element, MouseButton button);
 
+
+#ifdef PLATFORM_WIN32
+
 int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
 	(void) data_int;
 	(void) data_ptr;
-	if (message == MSG_LAYOUT && element->child_count > 0) {
+
+	if (message == MSG_DESTROY) {
+		Window *window = (Window *) element;
+		free(window->bits);
+		SetWindowLongPtr(window->hwnd, GWLP_USERDATA, 0);
+		DestroyWindow(window->hwnd);
+	} else if (message == MSG_LAYOUT && element->child_count > 0) {
 		element_move(element->children[0], element->bounds, false);
 		element_repaint(element, NULL);
 	}
 	return 0;
 }
-void platform_window_end_paint(Window *window, Painter *painter);
-
-#ifdef PLATFORM_WIN32
 
 void platform_window_end_paint(Window *window, Painter *painter) {
 	(void)painter;
@@ -157,6 +163,23 @@ void platform_init() {
 #endif
 
 #ifdef PLATFORM_LINUX
+
+int platform_window_message(Element *element, Message message, int data_int, void *data_ptr) {
+	(void) data_int;
+	(void) data_ptr;
+	if (message == MSG_DESTROY) {
+		Window *window = (Window *) element;
+		free(window->bits);
+		window->image->data = NULL;
+		XDestroyImage(window->image);
+		XDestroyWindow(global_state.display, window->window);
+	} else if (message == MSG_LAYOUT && element->child_count > 0) {
+		element_move(element->children[0], element->bounds, false);
+		element_repaint(element, NULL);
+	}
+	return 0;
+}
+
 
 void platform_window_end_paint(Window *window, Painter *painter) {
 	(void) painter;

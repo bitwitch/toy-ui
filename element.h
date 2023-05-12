@@ -1,8 +1,11 @@
 #define GLYPH_WIDTH  (9)
 #define GLYPH_HEIGHT (16)
-#define ELEMENT_VERTICAL_FILL   (1 << 16)
-#define ELEMENT_HORIZONTAL_FILL (1 << 17)
 
+// element flags
+#define ELEMENT_VERTICAL_FILL      (1 << 16)
+#define ELEMENT_HORIZONTAL_FILL    (1 << 17)
+#define ELEMENT_DESTROY            (1 << 30)
+#define ELEMENT_DESTROY_DESCENDENT (1 << 31)
 typedef struct Element Element;
 
 typedef enum {
@@ -21,6 +24,7 @@ typedef enum {
 	MSG_MOUSE_RIGHT_UP,    // Right mouse button released. (Sent to the element MSG_RIGHT_DOWN was sent to.)
 	MSG_MOUSE_DRAG,        // Mouse moved while holding buttons. (Sent to the element MSG_*_DOWN was sent to.)
 	MSG_CLICKED,           // Left mouse button released while hovering over the element that MSG_LEFT_UP was sent to.
+	MSG_DESTROY,
 	MSG_USER,
 } Message;
 
@@ -73,8 +77,17 @@ int element_message(Element *element, Message message, int data_int, void *data_
 void element_move(Element *element, Rect bounds, bool always_layout);
 void element_repaint(Element *element, Rect *region);
 Element *element_find_by_point(Element *element, int x, int y);
+void element_destroy(Element *element);
 
+// buttons
 Button *button_create(Element *parent, uint32_t flags, char *text, int text_bytes);
+
+// labels
+Label *label_create(Element *parent, uint32_t flags, char *text, int text_bytes);
+void label_set_text(Label *label, char *text, int text_bytes);
+
+// layout panels (horizontal and vertical)
+Panel *panel_create(Element *parent, uint32_t flags);
 
 void draw_block(Painter *painter, Rect rect, uint32_t color);
 void draw_rect(Painter *painter, Rect r, uint32_t fill_color, uint32_t border_color);
