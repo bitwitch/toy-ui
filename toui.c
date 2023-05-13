@@ -49,6 +49,7 @@ typedef enum {
 	MSG_LAYOUT,
 	MSG_GET_WIDTH,         // data_int should be set to the expected height of the element, otherwise 0.
 	MSG_GET_HEIGHT,        // data_int should be set to the expected width of the element, otherwise 0.
+	MSG_BUTTON_GET_COLOR,
 	MSG_PAINT,
 	MSG_MOUSE_MOVE,
 	MSG_UPDATE,
@@ -81,7 +82,7 @@ struct Element {
 	Element **children;
 	Window *window;
 	MessageHandler message_class, message_user;
-	void *cp; // Context pointer (for user).
+	void *context; // Context pointer (for user).
 };
 
 typedef struct {
@@ -358,9 +359,10 @@ int button_message(Element *element, Message message, int data_int, void *data_p
 	if (message == MSG_PAINT) {
 		Painter *painter = (Painter*)data_ptr;
 		uint32_t bg_color = COLOR_BUTTON_LIGHT;
+		element_message(element, MSG_BUTTON_GET_COLOR, 0, &bg_color);
 		uint32_t text_color = COLOR_BUTTON_DARK;
 		if (element->window->hovered == element) {
-			bg_color = COLOR_BUTTON_MEDIUM;
+			// bg_color = COLOR_BUTTON_MEDIUM;
 			if (element->window->pressed == element) {
 				bg_color = COLOR_BUTTON_DARK;
 				text_color = COLOR_BUTTON_LIGHT;
