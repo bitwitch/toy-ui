@@ -1,0 +1,33 @@
+There is a split between the UI state and the application state. We want to keep
+these in sync, but if not managed well it becomes unruly very quickly.
+
+
+Document Object Model
+- this is all about managing state
+- The state of our application, called the 'document', will consist of a
+  collection of 'objects'. Each Object has a unique uint64_t ID, a kind, and an
+  array of properties.
+- see: https://nakst.gitlab.io/tutorial/ui-part-17.html
+
+
+Refactoring reactive elements:
+- we want to keep a list of the UI elements that are connected to document
+  state. This will allow us to easily keep the UI and document in sync.
+
+
+Synchronizing updates in application state to ui:
+- a list of elements that need to "react" to changes in application state are
+  stored
+- when a specific property is modified, react_update() is called with the key of
+  the property that changed, and then all the elements that receive the
+	MSG_PROPERTY_CHANGED message are responsible for updating themselves.
+
+State changes are applied by building instances of StateChange struct and
+calling state_change_apply(). 
+Consider this example that outlines the code flow:
+1. The MSG_CLICKED message is received by react_u32_button_message().
+2. A StateChange structure is prepared, and state_change_apply() is called.
+3. state_change_apply() updates the property in the object's property array.
+4. state_change_apply() calls react_update() with the "count" property key.
+5. react_update() sends MSG_PROPERTY_CHANGED to all the elements bound to the "count" key.
+6. The buttons repaint themselves, and the label updates its stored text.
