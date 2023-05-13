@@ -7,6 +7,14 @@
 #define PROPERTY_KEY_MAX_SIZE 14
 #define MSG_PROPERTY_CHANGED (MSG_USER + 1)
 
+// helper macro for more simply defining button click handlers
+#define BUTTON_HANDLE_CLICK_PROLOGUE(name) \
+	int name(Element *element, Message message, int di, void *dp) { \
+		if (message == MSG_CLICKED) {
+#define BUTTON_HANDLE_CLICK_EPILOGUE() \
+		} \
+		return 0; \
+	}
 
 typedef enum {
 	PROPERTY_NONE,
@@ -54,6 +62,13 @@ typedef enum {
 	STATE_CHANGE_SET_PROPERTY,
 } StateChangeKind;
 
+typedef enum {
+	STATE_CHANGE_MODE_NONE,
+	STATE_CHANGE_MODE_NORMAL,
+	STATE_CHANGE_MODE_UNDO,
+	STATE_CHANGE_MODE_REDO,
+} StateChangeMode;
+
 typedef struct {
 	StateChangeKind kind;
 	uint64_t object_id;
@@ -62,16 +77,28 @@ typedef struct {
 	};
 } StateChange;
 
+
+// Global Variables
 struct { uint64_t key; Object value; } *objects;
 uint64_t object_id_allocator;
 uint64_t selected_object_id;
 
 Element *container;
 BUF(Element **react_elements);
+BUF(StateChange *undo_stack);
+BUF(StateChange *redo_stack);
 
 
 void property_free(Property property) {
 	// Nothing to do yet! None of our property types need freeing.
+}
+
+void state_change_free(StateChange step) {
+	if (step.kind == STATE_CHANGE_SET_PROPERTY) {
+		property_free(step.property);
+	} else {
+		// ... add code here when new step types are introduced.
+	}
 }
 
 void object_free(Object object) {
@@ -84,13 +111,23 @@ void object_free(Object object) {
 }
 
 void document_free(void) {
-	// Free each object.
 	for (int i = 0; i < hmlen(objects); ++i) {
 		object_free(objects[i].value);
 	}
-	// And free the hash map used to store the objects.
+
 	hmfree(objects);
 	arrfree(react_elements);
+
+	for (int i = 0; i < arrlen(undo_stack); ++i) {
+		state_change_free(undo_stack[i]);
+	}
+
+	for (int i = 0; i < arrlen(redo_stack); ++i) {
+		state_change_free(redo_stack[i]);
+	}
+
+	arrfree(undo_stack);
+	arrfree(redo_stack);
 }
 
 Property object_read_any(Object *object, char *key) {
@@ -118,18 +155,24 @@ Object *selected_object(void) {
 	return &hmgetp(objects, selected_object_id)->value;
 }
 
-void state_change_free(StateChange step) {
-	if (step.kind == STATE_CHANGE_SET_PROPERTY) {
-		property_free(step.property);
-	} else {
-		// ... add code here when new step types are introduced.
+// exclude can be NULL
+// if key is NULL, all elements are matched
+void react_update(Element *exclude, char *key) {
+	for (int i = 0; i < arrlen(react_elements); i++) {
+		ReactData *data = (ReactData*) react_elements[i]->context;
+
+		if (react_elements[i] == exclude) continue;
+
+		// If we are matching a specific key and this element's doesn't match it, skip it.
+		if (key && strcmp(data->key, key)) continue;
+
+		element_message(react_elements[i], MSG_PROPERTY_CHANGED, 0, 0);
 	}
 }
 
 void populate(void);
-void react_update(Element *exclude, char *key);
 
-void state_change_apply(StateChange step, Element *update_exclude) {
+void state_change_apply(StateChange step, Element *update_exclude, StateChangeMode mode) {
 	bool changed_selected_obj = false;
 
 	// Is the object specified in the step the same as the currently selected object?
@@ -140,9 +183,14 @@ void state_change_apply(StateChange step, Element *update_exclude) {
 	}
 
 	Object *object = selected_object();
+	StateChange reverse = {0};
 	char *update_key = NULL;
 
 	if (step.kind == STATE_CHANGE_SET_PROPERTY) {
+		// store the reverse state change for undo
+		reverse = step;
+		reverse.property = object_read_any(object, step.property.key);
+		
 		// Store the property key that will need to be updated in the UI.
 		update_key = step.property.key;
 
@@ -165,6 +213,20 @@ void state_change_apply(StateChange step, Element *update_exclude) {
 		}
 	} else {
 		// ... add more code when new step types are introduced
+	}
+
+	if (mode == STATE_CHANGE_MODE_NORMAL) {
+		// Clear the redo stack and put the reverse step on the undo stack.
+		for (int i = 0; i < arrlen(redo_stack); i++) 
+			state_change_free(redo_stack[i]);
+		arrfree(redo_stack);
+		arrput(undo_stack, reverse);
+	} else if (mode == STATE_CHANGE_MODE_UNDO) {
+		// We just undid an action, so put the reverse step on the redo stack.
+		arrput(redo_stack, reverse);
+	} else if (mode == STATE_CHANGE_MODE_REDO) {
+		// We just redid an action, so put the reverse step on the undo stack.
+		arrput(undo_stack, reverse);
 	}
 
 	if (changed_selected_obj) {
@@ -194,7 +256,7 @@ int react_u32_button_message(Element *element, Message message, int data_int, vo
 
 		// Double check that this new value of the property is actually in the valid range.
 		if (step.property.u32 >= data->u32_button.min && step.property.u32 <= data->u32_button.max) {
-			state_change_apply(step, NULL);
+			state_change_apply(step, NULL, STATE_CHANGE_MODE_NORMAL);
 		}
 
 	} else if (message == MSG_BUTTON_GET_COLOR) {
@@ -257,20 +319,19 @@ Label *react_u32_label_create(Element *parent, uint32_t flags, char *key, char *
 	return label;
 }
 
-// exclude can be NULL
-// if key is NULL, all elements are matched
-void react_update(Element *exclude, char *key) {
-	for (int i = 0; i < arrlen(react_elements); i++) {
-		ReactData *data = (ReactData*) react_elements[i]->context;
-
-		if (react_elements[i] == exclude) continue;
-
-		// If we are matching a specific key and this element's doesn't match it, skip it.
-		if (key && strcmp(data->key, key)) continue;
-
-		element_message(react_elements[i], MSG_PROPERTY_CHANGED, 0, 0);
+BUTTON_HANDLE_CLICK_PROLOGUE(button_undo_message) {
+	if (arrlen(undo_stack)) {
+		// Remove the last step from the undo stack and apply it.
+		state_change_apply(arrpop(undo_stack), NULL, STATE_CHANGE_MODE_UNDO);
 	}
-}
+} BUTTON_HANDLE_CLICK_EPILOGUE()
+
+BUTTON_HANDLE_CLICK_PROLOGUE(button_redo_message) {
+	if (arrlen(redo_stack)) {
+		// Remove the last step from the redo stack and apply it.
+		state_change_apply(arrpop(redo_stack), NULL, STATE_CHANGE_MODE_REDO);
+	}
+} BUTTON_HANDLE_CLICK_EPILOGUE()
 
 
 void populate(void) {
@@ -283,6 +344,7 @@ void populate(void) {
 
 	if (object->kind == OBJECT_COUNTER) {
 		Panel *row = panel_create(container, PANEL_HORIZONTAL | ELEMENT_HORIZONTAL_FILL);
+
 		Button *button_dec = react_u32_button_create(&row->element, 0, "count", "-", 0, 10, -1);
 		Label *label_count = react_u32_label_create(&row->element, ELEMENT_HORIZONTAL_FILL | LABEL_CENTER, "count", "Count: ");
 		Button *button_inc = react_u32_button_create(&row->element, 0, "count", "+", 0, 10, 1);
@@ -306,7 +368,7 @@ int main() {
 	Property prop_count = {0};
 	prop_count.kind = PROPERTY_U32;
 	strcpy(prop_count.key, "count");
-	prop_count.u32 = 10; 
+	prop_count.u32 = 0; 
 	arrput(object_counter.properties, prop_count);
 
 	// Put the counter object into the objects map, and select it.
@@ -316,10 +378,21 @@ int main() {
 
 
 	platform_init();
-	Window *window = platform_create_window("Example", 400, 120);
+	Window *window = platform_create_window("Example", 400, 200);
 	Panel *panel = panel_create(&window->element, PANEL_GREY);
 	panel->padding = rect_make(10, 10, 10, 10);
 	panel->gap = 15;
+
+	Panel *row = panel_create(&panel->element, PANEL_HORIZONTAL | ELEMENT_HORIZONTAL_FILL);
+	Label *label_controls = label_create(&row->element, 0, "Controls: ", -1);
+	Button *button_undo = button_create(&row->element, 0, "Undo", -1);
+	Button *button_redo = button_create(&row->element, 0, "Redo", -1);
+	button_undo->element.message_user = button_undo_message;
+	button_redo->element.message_user = button_redo_message;
+
+
+
+
 	container = &panel_create(&panel->element, ELEMENT_HORIZONTAL_FILL | ELEMENT_VERTICAL_FILL)->element;
 	populate();
 
