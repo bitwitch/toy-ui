@@ -333,6 +333,103 @@ BUTTON_HANDLE_CLICK_PROLOGUE(button_redo_message) {
 	}
 } BUTTON_HANDLE_CLICK_EPILOGUE()
 
+BUTTON_HANDLE_CLICK_PROLOGUE(button_save_message) {
+	FILE *f = fopen("example.dat", "wb");
+
+	// Save the object ID allocator.
+	fwrite(&object_id_allocator, 1, sizeof(uint64_t), f);
+
+	// Save the number of objects in the document.
+	uint32_t object_count = (uint32_t)hmlenu(objects);
+	fwrite(&object_count, 1, sizeof(uint32_t), f);
+
+	for (int i = 0; i < hmlen(objects); ++i) {
+		// Save the object's key, kind and number of properties.
+		fwrite(&objects[i].key, 1, sizeof(uint64_t), f);
+		ObjectKind kind = objects[i].value.kind;
+		fwrite(&kind, 1, sizeof(ObjectKind), f);
+		uint32_t property_count = (uint32_t)arrlen(objects[i].value.properties);
+		fwrite(&property_count, 1, sizeof(uint32_t), f);
+
+		// For each property in the object...
+		for (uint32_t j = 0; j < property_count; ++j) {
+			// Save the property's kind annd key.
+			fwrite(&objects[i].value.properties[j].kind, 1, sizeof(PropertyKind), f);
+			fwrite(&objects[i].value.properties[j].key, 1, PROPERTY_KEY_MAX_SIZE + 1, f);
+			// Save the property's value. Dependent on the kind.
+			if (objects[i].value.properties[j].kind == PROPERTY_U32) {
+				fwrite(&objects[i].value.properties[j].u32, 1, sizeof(uint32_t), f);
+			} else {
+				// ...
+			}
+		}
+	}
+	fclose(f);
+} BUTTON_HANDLE_CLICK_EPILOGUE()
+
+BUTTON_HANDLE_CLICK_PROLOGUE(button_load_message) {
+	FILE *f = fopen("example.dat", "rb");
+	if (!f) return 0;
+
+	document_free();
+
+	// Load the object ID allocator.
+	fread(&object_id_allocator, 1, sizeof(uint64_t), f);
+
+	// Load the number of objects in the file.
+	uint32_t object_count = 0;
+	fread(&object_count, 1, sizeof(uint32_t), f);
+
+	for (uint32_t i = 0; i < object_count; i++) {
+		Object object = {0};
+
+		// Read the ID, type and number of properties.
+		uint64_t id = 0;
+		fread(&id, 1, sizeof(uint64_t), f);
+		PropertyKind kind = 0;
+		fread(&kind, 1, sizeof(PropertyKind), f);
+		uint32_t property_count = 0;
+		fread(&property_count, 1, sizeof(property_count), f);
+		object.kind = kind;
+
+		// Make sure that object ID allocator is actually set to a valid value.
+		if (object_id_allocator < id) {
+			object_id_allocator = id;
+		}
+
+		for (uint32_t j = 0; j < property_count; j++) {
+			// Read the kind and key of the property.
+			Property property = {0};
+			fread(&property.kind, 1, sizeof(property.kind), f);
+			fread(&property.key, 1, PROPERTY_KEY_MAX_SIZE + 1, f);
+			property.key[PROPERTY_KEY_MAX_SIZE] = 0;
+
+			// Read the property's value. Dependent on the kind.
+			if (property.kind == PROPERTY_U32) {
+				fread(&property.u32, 1, sizeof(uint32_t), f);
+			} else {
+				// ...
+			}
+
+			// Add the property to the array.
+			arrput(object.properties, property);
+		}
+
+		// Add the object to the map.
+		hmput(objects, id, object);
+
+		// If this is a counter object, set it to be the selected object.
+		if (kind == OBJECT_COUNTER) {
+			selected_object_id = id;
+		}
+	}
+
+	fclose(f);
+
+	populate();
+
+} BUTTON_HANDLE_CLICK_EPILOGUE()
+
 
 void populate(void) {
 	for (uintptr_t i = 0; i < container->child_count; ++i) {
@@ -383,17 +480,20 @@ int main() {
 	panel->padding = rect_make(10, 10, 10, 10);
 	panel->gap = 15;
 
+	// Controls
 	Panel *row = panel_create(&panel->element, PANEL_HORIZONTAL | ELEMENT_HORIZONTAL_FILL);
 	Label *label_controls = label_create(&row->element, 0, "Controls: ", -1);
 	Button *button_undo = button_create(&row->element, 0, "Undo", -1);
 	Button *button_redo = button_create(&row->element, 0, "Redo", -1);
 	button_undo->element.message_user = button_undo_message;
 	button_redo->element.message_user = button_redo_message;
-
-
-
+	Button *button_save = button_create(&row->element, 0, "Save", -1);
+	Button *button_load = button_create(&row->element, 0, "Load", -1);
+	button_save->element.message_user = button_save_message;
+	button_load->element.message_user = button_load_message;
 
 	container = &panel_create(&panel->element, ELEMENT_HORIZONTAL_FILL | ELEMENT_VERTICAL_FILL)->element;
+
 	populate();
 
 	return platform_message_loop();
